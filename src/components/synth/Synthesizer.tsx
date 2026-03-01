@@ -4,415 +4,318 @@ import { useAppStore } from '@/store/useAppStore';
 import type { OscillatorType, FilterType, LFOTarget } from '@/types';
 import { getAudioContext, SynthEngine, drawSpectrum, drawOscilloscope } from '@/lib/audioEngine';
 import Knob from '@/components/ui/Knob';
-import { Save, Trash2, ChevronDown } from 'lucide-react';
+import { Save, Trash2, Zap } from 'lucide-react';
 
-// ---- Keyboard mapping ----
-const KEY_NOTE_MAP: Record<string, number> = {
-  'a': 60, 'w': 61, 's': 62, 'e': 63, 'd': 64, 'f': 65,
-  't': 66, 'g': 67, 'y': 68, 'h': 69, 'u': 70, 'j': 71,
-  'k': 72, 'o': 73, 'l': 74, 'p': 75, ';': 76,
+/* ─── Computer keyboard → MIDI ─── */
+const KEY_MIDI: Record<string, number> = {
+  z:48, s:49, x:50, d:51, c:52, v:53, g:54, b:55, h:56, n:57, j:58, m:59,
+  ',':60, 'l':61, '.':62, ';':63, '/':64,
+  q:60, '2':61, w:62, '3':63, e:64, r:65, '5':66, t:67, '6':68, y:69, '7':70, u:71,
+  i:72, '9':73, o:74, '0':75, p:76,
 };
 
-const PIANO_KEYS = [
-  { note: 0, name: 'C', black: false },
-  { note: 1, name: 'C#', black: true },
-  { note: 2, name: 'D', black: false },
-  { note: 3, name: 'D#', black: true },
-  { note: 4, name: 'E', black: false },
-  { note: 5, name: 'F', black: false },
-  { note: 6, name: 'F#', black: true },
-  { note: 7, name: 'G', black: false },
-  { note: 8, name: 'G#', black: true },
-  { note: 9, name: 'A', black: false },
-  { note: 10, name: 'A#', black: true },
-  { note: 11, name: 'B', black: false },
+/* ─── Piano key layout ─── */
+const OCTAVE_KEYS = [
+  { semi: 0, black: false, name: 'C' },
+  { semi: 1, black: true,  name: 'C#' },
+  { semi: 2, black: false, name: 'D' },
+  { semi: 3, black: true,  name: 'D#' },
+  { semi: 4, black: false, name: 'E' },
+  { semi: 5, black: false, name: 'F' },
+  { semi: 6, black: true,  name: 'F#' },
+  { semi: 7, black: false, name: 'G' },
+  { semi: 8, black: true,  name: 'G#' },
+  { semi: 9, black: false, name: 'A' },
+  { semi: 10, black: true, name: 'A#' },
+  { semi: 11, black: false, name: 'B' },
 ];
+const WHITE_KEYS = OCTAVE_KEYS.filter(k => !k.black);
+const BLACK_KEYS = OCTAVE_KEYS.filter(k =>  k.black);
 
-let synthEngine: SynthEngine | null = null;
+// Map semitone → position among white keys (left neighbour index)
+const BLACK_POS: Record<number, number> = { 1:0, 3:1, 6:3, 8:4, 10:5 };
+
+let _engine: SynthEngine | null = null;
 
 export default function Synthesizer() {
   const { synthPreset, updateSynthPreset, savedPresets, savePreset, loadPreset, deletePreset } = useAppStore();
   const { oscillatorType, envelope, filter, lfo, effects, octave, detune } = synthPreset;
 
-  const spectrumCanvasRef = useRef<HTMLCanvasElement>(null);
-  const oscCanvasRef = useRef<HTMLCanvasElement>(null);
-  const animFrameRef = useRef<number>(0);
-  const pressedKeys = useRef<Set<string>>(new Set());
-  const pressedNotes = useRef<Set<number>>(new Set());
-  const [saveModalOpen, setSaveModalOpen] = useState(false);
-  const [presetName, setPresetName] = useState('');
-  const [analyserMode, setAnalyserMode] = useState<'spectrum' | 'oscilloscope'>('spectrum');
-  const [activeNotes, setActiveNotes] = useState<Set<number>>(new Set());
+  const specRef  = useRef<HTMLCanvasElement>(null);
+  const oscRef   = useRef<HTMLCanvasElement>(null);
+  const rafRef   = useRef<number>(0);
+  const held     = useRef<Set<string>>(new Set());
 
-  // Initialize engine
+  const [analyserMode, setAnalyserMode] = useState<'spectrum'|'oscilloscope'>('spectrum');
+  const [activeNotes,  setActiveNotes]  = useState<Set<number>>(new Set());
+  const [showSave,     setShowSave]     = useState(false);
+  const [presetName,   setPresetName]   = useState('');
+
+  /* ── Init engine + animation loop ── */
   useEffect(() => {
     const ctx = getAudioContext();
-    if (!synthEngine) synthEngine = new SynthEngine(ctx);
+    if (!_engine) _engine = new SynthEngine(ctx);
 
-    // Start animation loop
-    const animate = () => {
-      if (!synthEngine) return;
-      const analyser = synthEngine.getAnalyser();
-      if (spectrumCanvasRef.current && analyserMode === 'spectrum') {
-        drawSpectrum(spectrumCanvasRef.current, analyser);
-      }
-      if (oscCanvasRef.current && analyserMode === 'oscilloscope') {
-        drawOscilloscope(oscCanvasRef.current, analyser);
-      }
-      animFrameRef.current = requestAnimationFrame(animate);
+    const draw = () => {
+      const a = _engine!.getAnalyser();
+      if (analyserMode === 'spectrum'     && specRef.current) drawSpectrum(specRef.current, a);
+      if (analyserMode === 'oscilloscope' && oscRef.current)  drawOscilloscope(oscRef.current, a);
+      rafRef.current = requestAnimationFrame(draw);
     };
-    animate();
-
-    return () => cancelAnimationFrame(animFrameRef.current);
+    draw();
+    return () => cancelAnimationFrame(rafRef.current);
   }, [analyserMode]);
 
-  const noteOn = useCallback((midiNote: number) => {
-    if (!synthEngine) return;
-    const ctx = getAudioContext();
-    if (!synthEngine) synthEngine = new SynthEngine(ctx);
-    synthEngine.noteOn(midiNote, 100, synthPreset);
-    setActiveNotes(prev => new Set([...prev, midiNote]));
-    pressedNotes.current.add(midiNote);
+  /* ── Note on/off ── */
+  const noteOn = useCallback((midi: number) => {
+    if (!_engine) return;
+    _engine.noteOn(midi, 100, synthPreset);
+    setActiveNotes(prev => new Set([...prev, midi]));
   }, [synthPreset]);
 
-  const noteOff = useCallback((midiNote: number) => {
-    if (!synthEngine) return;
-    synthEngine.noteOff(midiNote, synthPreset.envelope);
-    setActiveNotes(prev => { const s = new Set(prev); s.delete(midiNote); return s; });
-    pressedNotes.current.delete(midiNote);
+  const noteOff = useCallback((midi: number) => {
+    if (!_engine) return;
+    _engine.noteOff(midi, synthPreset.envelope);
+    setActiveNotes(prev => { const s = new Set(prev); s.delete(midi); return s; });
   }, [synthPreset.envelope]);
 
-  // Computer keyboard
+  /* ── Computer keyboard ── */
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.repeat || e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
-      const key = e.key.toLowerCase();
-      if (KEY_NOTE_MAP[key] !== undefined && !pressedKeys.current.has(key)) {
-        pressedKeys.current.add(key);
-        const midiNote = KEY_NOTE_MAP[key] + (octave - 4) * 12;
-        noteOn(midiNote);
+    const down = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return;
+      const k = e.key.toLowerCase();
+      if (KEY_MIDI[k] !== undefined && !held.current.has(k)) {
+        held.current.add(k);
+        noteOn(KEY_MIDI[k] + (octave - 4) * 12);
       }
     };
-    const handleKeyUp = (e: KeyboardEvent) => {
-      const key = e.key.toLowerCase();
-      if (KEY_NOTE_MAP[key] !== undefined) {
-        pressedKeys.current.delete(key);
-        const midiNote = KEY_NOTE_MAP[key] + (octave - 4) * 12;
-        noteOff(midiNote);
+    const up = (e: KeyboardEvent) => {
+      const k = e.key.toLowerCase();
+      if (KEY_MIDI[k] !== undefined) {
+        held.current.delete(k);
+        noteOff(KEY_MIDI[k] + (octave - 4) * 12);
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup',   up);
+    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); };
   }, [octave, noteOn, noteOff]);
 
-  const OSC_TYPES: OscillatorType[] = ['sine', 'square', 'sawtooth', 'triangle'];
-  const OSC_LABELS: Record<OscillatorType, string> = {
-    sine: 'サイン', square: '矩形波', sawtooth: 'ノコギリ', triangle: '三角波',
-  };
-  const OSC_ICONS: Record<OscillatorType, string> = {
-    sine: '∿', square: '⊓', sawtooth: '⋀', triangle: '∧',
-  };
-
-  const FILTER_TYPES: FilterType[] = ['lowpass', 'highpass', 'bandpass'];
-  const FILTER_LABELS: Record<FilterType, string> = {
-    lowpass: 'ローパス', highpass: 'ハイパス', bandpass: 'バンドパス',
-  };
-  const LFO_TARGETS: LFOTarget[] = ['pitch', 'filter', 'amp'];
-  const LFO_TARGET_LABELS: Record<LFOTarget, string> = {
-    pitch: 'ピッチ', filter: 'フィルター', amp: 'アンプ',
+  const OSC_TYPES: OscillatorType[] = ['sine','square','sawtooth','triangle'];
+  const OSC_META: Record<OscillatorType, { label: string; path: string }> = {
+    sine:     { label: 'サイン',   path: 'M0,12 Q4,2 8,12 Q12,22 16,12' },
+    square:   { label: '矩形波',   path: 'M0,4 L0,4 L8,4 L8,20 L16,20 L16,4' },
+    sawtooth: { label: 'ノコギリ', path: 'M0,20 L8,4 L8,20 L16,4' },
+    triangle: { label: '三角波',   path: 'M0,20 L8,4 L16,20' },
   };
 
-  const section = 'bg-gray-900 border border-gray-700 rounded-xl p-4';
-  const sectionTitle = 'text-xs font-semibold text-gray-300 uppercase tracking-wider mb-3 flex items-center gap-1.5';
+  const FILTER_TYPES: FilterType[] = ['lowpass','highpass','bandpass'];
+  const FILTER_LABELS: Record<FilterType, string> = { lowpass:'ローパス', highpass:'ハイパス', bandpass:'バンドパス' };
+  const LFO_TARGETS: LFOTarget[] = ['pitch','filter','amp'];
+  const LFO_TARGET_LABELS: Record<LFOTarget, string> = { pitch:'ピッチ', filter:'フィルター', amp:'アンプ' };
+
+  const card = 'bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col gap-3';
+  const cardTitle = 'text-[10px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1.5';
+  const segBtn = (active: boolean, activeClass = 'bg-gray-700 text-white border-gray-600') =>
+    `flex-1 py-1.5 rounded-lg text-xs border transition-all ${active ? activeClass : 'border-gray-800 text-gray-600 hover:text-gray-300 hover:border-gray-700'}`;
+
+  const OCTAVES = [octave, octave + 1];
+  const WHITE_COUNT = OCTAVES.length * WHITE_KEYS.length;
 
   return (
-    <div className="flex flex-col h-full bg-gray-950 overflow-auto">
-      {/* Analyser */}
-      <div className="bg-black border-b border-gray-800 relative" style={{ height: 80 }}>
-        <canvas
-          ref={spectrumCanvasRef}
-          width={800} height={80}
-          className={`w-full h-full absolute inset-0 ${analyserMode === 'spectrum' ? '' : 'hidden'}`}
-        />
-        <canvas
-          ref={oscCanvasRef}
-          width={800} height={80}
-          className={`w-full h-full absolute inset-0 ${analyserMode === 'oscilloscope' ? '' : 'hidden'}`}
-        />
-        <div className="absolute top-2 right-2 flex gap-1">
-          {(['spectrum', 'oscilloscope'] as const).map(mode => (
-            <button
-              key={mode}
-              onClick={() => setAnalyserMode(mode)}
-              className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
-                analyserMode === mode
-                  ? 'border-violet-500 bg-violet-500/20 text-violet-300'
-                  : 'border-gray-700 text-gray-500 hover:text-gray-300'
-              }`}
-            >
-              {mode === 'spectrum' ? 'スペクトル' : 'オシロ'}
+    <div className="flex flex-col h-full bg-gray-950">
+      {/* ── Analyser strip ── */}
+      <div className="relative bg-black border-b border-gray-800 flex-shrink-0" style={{ height: 88 }}>
+        <canvas ref={specRef} className={`absolute inset-0 w-full h-full ${analyserMode === 'spectrum' ? '' : 'hidden'}`} />
+        <canvas ref={oscRef}  className={`absolute inset-0 w-full h-full ${analyserMode === 'oscilloscope' ? '' : 'hidden'}`} />
+        <div className="absolute top-2 left-3 flex items-center gap-2">
+          <Zap size={14} className="text-violet-400" />
+          <span className="text-xs font-bold text-white tracking-wide">シンセサイザー</span>
+        </div>
+        <div className="absolute top-2 right-3 flex gap-1">
+          {(['spectrum','oscilloscope'] as const).map(m => (
+            <button key={m} onClick={() => setAnalyserMode(m)}
+              className={`text-[10px] px-2 py-0.5 rounded-md border transition-all ${analyserMode === m ? 'border-violet-500 bg-violet-500/20 text-violet-300' : 'border-gray-800 text-gray-600 hover:text-gray-400'}`}>
+              {m === 'spectrum' ? 'スペクトル' : 'オシロ'}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="p-4 space-y-4">
+      {/* ── Main content ── */}
+      <div className="flex-1 overflow-auto p-4 space-y-4">
         {/* Preset bar */}
         <div className="flex items-center gap-2">
-          <select
-            value={synthPreset.id}
-            onChange={e => loadPreset(e.target.value)}
-            className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-violet-500"
-          >
-            {savedPresets.map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
+          <select value={synthPreset.id} onChange={e => loadPreset(e.target.value)}
+            className="flex-1 bg-gray-900 border border-gray-800 rounded-xl px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-violet-600 transition-colors">
+            {savedPresets.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          <button
-            onClick={() => { setPresetName(synthPreset.name); setSaveModalOpen(true); }}
-            className="flex items-center gap-1 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white text-xs rounded-lg transition-colors"
-          >
-            <Save size={12} />
-            保存
+          <button onClick={() => { setPresetName(synthPreset.name); setShowSave(true); }}
+            className="flex items-center gap-1.5 px-4 py-2 bg-violet-700 hover:bg-violet-600 text-white text-xs font-semibold rounded-xl transition-colors">
+            <Save size={13} /> 保存
           </button>
           {synthPreset.id !== 'default' && (
-            <button
-              onClick={() => deletePreset(synthPreset.id)}
-              className="p-1.5 text-gray-500 hover:text-red-400 border border-gray-700 hover:border-red-500 rounded-lg transition-colors"
-            >
-              <Trash2 size={14} />
+            <button onClick={() => deletePreset(synthPreset.id)}
+              className="p-2 text-gray-600 hover:text-red-400 border border-gray-800 hover:border-red-500/50 rounded-xl transition-all">
+              <Trash2 size={15} />
             </button>
           )}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Oscillator */}
-          <div className={section}>
-            <div className={sectionTitle}>
-              <span>〜</span> オシレーター
-            </div>
-            <div className="grid grid-cols-4 gap-1 mb-3">
+        {/* Parameter grid */}
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+
+          {/* ── Oscillator ── */}
+          <div className={card}>
+            <div className={cardTitle}>〜 オシレーター</div>
+            <div className="grid grid-cols-2 gap-1.5">
               {OSC_TYPES.map(type => (
-                <button
-                  key={type}
-                  onClick={() => updateSynthPreset({ oscillatorType: type })}
-                  className={`flex flex-col items-center gap-0.5 py-2 rounded-lg border transition-all ${
+                <button key={type} onClick={() => updateSynthPreset({ oscillatorType: type })}
+                  className={`flex flex-col items-center gap-1.5 py-3 rounded-xl border transition-all ${
                     oscillatorType === type
-                      ? 'border-violet-500 bg-violet-500/20 text-violet-300'
-                      : 'border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-300'
-                  }`}
-                >
-                  <span className="text-lg font-mono">{OSC_ICONS[type]}</span>
-                  <span className="text-[10px]">{OSC_LABELS[type]}</span>
+                      ? 'border-violet-500 bg-violet-500/15 text-violet-300'
+                      : 'border-gray-800 text-gray-600 hover:border-gray-700 hover:text-gray-400'
+                  }`}>
+                  <svg width={20} height={24} viewBox="0 0 16 24" fill="none">
+                    <path d={OSC_META[type].path} stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                  </svg>
+                  <span className="text-[10px] font-medium">{OSC_META[type].label}</span>
                 </button>
               ))}
             </div>
-            <div className="flex gap-4 justify-center">
-              <Knob
-                value={octave}
-                min={1} max={7}
-                onChange={v => updateSynthPreset({ octave: Math.round(v) })}
-                label={`オクターブ ${octave}`}
-                color="#a78bfa"
-              />
-              <Knob
-                value={detune}
-                min={-100} max={100}
-                onChange={v => updateSynthPreset({ detune: v })}
-                label={`デチューン ${Math.round(detune)}`}
-                color="#60a5fa"
-              />
+            <div className="flex gap-3 justify-center pt-1">
+              <Knob value={octave} min={1} max={7} onChange={v => updateSynthPreset({ octave: Math.round(v) })}
+                label={`OCT ${octave}`} color="#a78bfa" />
+              <Knob value={detune} min={-100} max={100} onChange={v => updateSynthPreset({ detune: v })}
+                label={`デチューン ${Math.round(detune)}`} color="#60a5fa" />
             </div>
           </div>
 
-          {/* ADSR Envelope */}
-          <div className={section}>
-            <div className={sectionTitle}>
-              <span>⊿</span> エンベロープ (ADSR)
-            </div>
-            <div className="flex gap-3 justify-center">
+          {/* ── ADSR ── */}
+          <div className={card}>
+            <div className={cardTitle}>⊿ エンベロープ ADSR</div>
+            <ADSRDisplay envelope={envelope} />
+            <div className="flex gap-2 justify-center">
               {[
-                { key: 'attack', label: 'A アタック', min: 0.001, max: 2, color: '#34d399' },
-                { key: 'decay', label: 'D ディケイ', min: 0.01, max: 2, color: '#60a5fa' },
-                { key: 'sustain', label: 'S サスティン', min: 0, max: 1, color: '#f59e0b' },
-                { key: 'release', label: 'R リリース', min: 0.01, max: 5, color: '#f87171' },
-              ].map(param => (
-                <div key={param.key} className="flex flex-col items-center gap-1">
-                  <Knob
-                    value={(envelope as any)[param.key]}
-                    min={param.min} max={param.max}
-                    onChange={v => updateSynthPreset({ envelope: { ...envelope, [param.key]: v } })}
-                    label={`${((envelope as any)[param.key]).toFixed(2)}`}
-                    color={param.color}
-                    size={40}
-                  />
-                  <span className="text-[9px] text-gray-500">{param.label}</span>
+                { key: 'attack',  label: 'A', min: 0.001, max: 2,   color: '#34d399' },
+                { key: 'decay',   label: 'D', min: 0.01,  max: 2,   color: '#60a5fa' },
+                { key: 'sustain', label: 'S', min: 0,     max: 1,   color: '#fbbf24' },
+                { key: 'release', label: 'R', min: 0.01,  max: 5,   color: '#f87171' },
+              ].map(p => (
+                <div key={p.key} className="flex flex-col items-center gap-1">
+                  <Knob value={(envelope as any)[p.key]} min={p.min} max={p.max}
+                    onChange={v => updateSynthPreset({ envelope: { ...envelope, [p.key]: v } })}
+                    label={((envelope as any)[p.key]).toFixed(2)}
+                    color={p.color} size={38} />
+                  <span className="text-[9px] text-gray-600">{p.label}</span>
                 </div>
               ))}
             </div>
-            {/* Visual ADSR */}
-            <ADSRDisplay envelope={envelope} />
           </div>
 
-          {/* Filter */}
-          <div className={section}>
-            <div className={sectionTitle}>
-              <span>⌇</span> フィルター
-            </div>
-            <div className="flex gap-1 mb-3">
+          {/* ── Filter ── */}
+          <div className={card}>
+            <div className={cardTitle}>⌇ フィルター</div>
+            <div className="flex gap-1">
               {FILTER_TYPES.map(type => (
-                <button
-                  key={type}
-                  onClick={() => updateSynthPreset({ filter: { ...filter, type } })}
-                  className={`flex-1 py-1 rounded text-xs transition-all border ${
-                    filter.type === type
-                      ? 'border-cyan-500 bg-cyan-500/20 text-cyan-300'
-                      : 'border-gray-700 text-gray-500 hover:text-gray-300'
-                  }`}
-                >
+                <button key={type} onClick={() => updateSynthPreset({ filter: { ...filter, type } })}
+                  className={segBtn(filter.type === type, 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50')}>
                   {FILTER_LABELS[type]}
                 </button>
               ))}
             </div>
             <div className="flex gap-4 justify-center">
-              <Knob
-                value={filter.cutoff}
-                min={20} max={20000}
+              <Knob value={filter.cutoff} min={20} max={20000} logarithmic
                 onChange={v => updateSynthPreset({ filter: { ...filter, cutoff: v } })}
-                label={`${filter.cutoff >= 1000 ? (filter.cutoff / 1000).toFixed(1) + 'kHz' : Math.round(filter.cutoff) + 'Hz'}`}
-                color="#22d3ee"
-                logarithmic
-              />
-              <Knob
-                value={filter.resonance}
-                min={0} max={30}
+                label={filter.cutoff >= 1000 ? `${(filter.cutoff/1000).toFixed(1)}k` : `${Math.round(filter.cutoff)}Hz`}
+                color="#22d3ee" />
+              <Knob value={filter.resonance} min={0} max={30}
                 onChange={v => updateSynthPreset({ filter: { ...filter, resonance: v } })}
-                label={`Q: ${filter.resonance.toFixed(1)}`}
-                color="#f97316"
-              />
+                label={`Q ${filter.resonance.toFixed(1)}`} color="#f97316" />
             </div>
           </div>
 
-          {/* LFO */}
-          <div className={section}>
-            <div className={sectionTitle}>
-              <span>∿</span> LFO
-            </div>
-            <div className="flex gap-1 mb-3">
-              {LFO_TARGETS.map(target => (
-                <button
-                  key={target}
-                  onClick={() => updateSynthPreset({ lfo: { ...lfo, target } })}
-                  className={`flex-1 py-1 rounded text-xs transition-all border ${
-                    lfo.target === target
-                      ? 'border-amber-500 bg-amber-500/20 text-amber-300'
-                      : 'border-gray-700 text-gray-500 hover:text-gray-300'
-                  }`}
-                >
-                  {LFO_TARGET_LABELS[target]}
+          {/* ── LFO ── */}
+          <div className={card}>
+            <div className={cardTitle}>∿ LFO</div>
+            <div className="flex gap-1">
+              {LFO_TARGETS.map(t => (
+                <button key={t} onClick={() => updateSynthPreset({ lfo: { ...lfo, target: t } })}
+                  className={segBtn(lfo.target === t, 'bg-amber-500/20 text-amber-300 border-amber-500/50')}>
+                  {LFO_TARGET_LABELS[t]}
                 </button>
               ))}
             </div>
             <div className="flex gap-4 justify-center">
-              <Knob
-                value={lfo.rate}
-                min={0.1} max={20}
+              <Knob value={lfo.rate} min={0.1} max={20}
                 onChange={v => updateSynthPreset({ lfo: { ...lfo, rate: v } })}
-                label={`${lfo.rate.toFixed(1)}Hz`}
-                color="#fbbf24"
-              />
-              <Knob
-                value={lfo.depth}
-                min={0} max={1}
+                label={`${lfo.rate.toFixed(1)} Hz`} color="#fbbf24" />
+              <Knob value={lfo.depth} min={0} max={1}
                 onChange={v => updateSynthPreset({ lfo: { ...lfo, depth: v } })}
-                label={`デプス ${(lfo.depth * 100).toFixed(0)}%`}
-                color="#fb923c"
-              />
+                label={`${(lfo.depth*100).toFixed(0)}%`} color="#fb923c" />
             </div>
           </div>
 
-          {/* Effects */}
-          <div className={section}>
-            <div className={sectionTitle}>
-              <span>✦</span> エフェクト
-            </div>
-            <div className="flex gap-3 justify-center flex-wrap">
-              <Knob
-                value={effects.reverb}
-                min={0} max={1}
-                onChange={v => updateSynthPreset({ effects: { ...effects, reverb: v } })}
-                label={`リバーブ ${(effects.reverb * 100).toFixed(0)}%`}
-                color="#818cf8"
-                size={40}
-              />
-              <Knob
-                value={effects.delay}
-                min={0} max={1}
-                onChange={v => updateSynthPreset({ effects: { ...effects, delay: v } })}
-                label={`ディレイ ${(effects.delay * 100).toFixed(0)}%`}
-                color="#60a5fa"
-                size={40}
-              />
-              <Knob
-                value={effects.delayTime}
-                min={0.05} max={1}
-                onChange={v => updateSynthPreset({ effects: { ...effects, delayTime: v } })}
-                label={`遅延 ${effects.delayTime.toFixed(2)}s`}
-                color="#38bdf8"
-                size={40}
-              />
-              <Knob
-                value={effects.distortion}
-                min={0} max={1}
-                onChange={v => updateSynthPreset({ effects: { ...effects, distortion: v } })}
-                label={`歪み ${(effects.distortion * 100).toFixed(0)}%`}
-                color="#f87171"
-                size={40}
-              />
+          {/* ── Effects ── */}
+          <div className={`${card} col-span-2 lg:col-span-2`}>
+            <div className={cardTitle}>✦ エフェクト</div>
+            <div className="flex gap-4 justify-center flex-wrap">
+              {[
+                { key: 'reverb',     label: 'リバーブ',   color: '#818cf8', min: 0, max: 1 },
+                { key: 'delay',      label: 'ディレイ',   color: '#60a5fa', min: 0, max: 1 },
+                { key: 'delayTime',  label: '遅延時間',   color: '#38bdf8', min: 0.05, max: 1 },
+                { key: 'distortion', label: 'ディストーション', color: '#f87171', min: 0, max: 1 },
+              ].map(p => (
+                <div key={p.key} className="flex flex-col items-center gap-0.5">
+                  <Knob value={(effects as any)[p.key]} min={p.min} max={p.max}
+                    onChange={v => updateSynthPreset({ effects: { ...effects, [p.key]: v } })}
+                    label={p.key === 'delayTime' ? `${((effects as any)[p.key]).toFixed(2)}s` : `${((effects as any)[p.key]*100).toFixed(0)}%`}
+                    color={p.color} size={46} />
+                  <span className="text-[9px] text-gray-600">{p.label}</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
 
-        {/* Piano keyboard */}
-        <PianoKeyboard octave={octave} activeNotes={activeNotes} onNoteOn={noteOn} onNoteOff={noteOff} />
+        {/* ── Piano keyboard ── */}
+        <PianoKeyboard
+          octaves={OCTAVES}
+          activeNotes={activeNotes}
+          onNoteOn={noteOn}
+          onNoteOff={noteOff}
+        />
 
-        <div className="text-center text-xs text-gray-600 pb-2">
-          キーボード: A-L でノートを演奏 / W,E,T,Y,U,O,P で黒鍵
-        </div>
+        <p className="text-center text-[11px] text-gray-700 pb-2">
+          キーボード: Z-/ (下段) | Q-P (上段) 両段で2オクターブ演奏
+        </p>
       </div>
 
       {/* Save preset modal */}
-      {saveModalOpen && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-80">
-            <h3 className="text-white font-semibold mb-4">プリセットを保存</h3>
+      {showSave && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-80 shadow-2xl">
+            <h3 className="text-white font-bold text-sm mb-4">プリセットを保存</h3>
             <input
-              type="text"
-              value={presetName}
-              onChange={e => setPresetName(e.target.value)}
-              placeholder="プリセット名"
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500 mb-4"
               autoFocus
+              type="text" value={presetName} onChange={e => setPresetName(e.target.value)}
+              placeholder="プリセット名を入力..."
+              className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-violet-500 mb-4 transition-colors"
               onKeyDown={e => {
-                if (e.key === 'Enter') { savePreset(presetName); setSaveModalOpen(false); }
-                if (e.key === 'Escape') setSaveModalOpen(false);
+                if (e.key === 'Enter' && presetName) { savePreset(presetName); setShowSave(false); }
+                if (e.key === 'Escape') setShowSave(false);
               }}
             />
             <div className="flex gap-2">
-              <button
-                onClick={() => setSaveModalOpen(false)}
-                className="flex-1 py-2 text-sm text-gray-400 border border-gray-700 rounded-lg hover:bg-gray-800"
-              >
+              <button onClick={() => setShowSave(false)}
+                className="flex-1 py-2.5 text-sm text-gray-400 border border-gray-700 rounded-xl hover:bg-gray-800 transition-colors">
                 キャンセル
               </button>
               <button
-                onClick={() => { if (presetName) { savePreset(presetName); setSaveModalOpen(false); } }}
-                className="flex-1 py-2 text-sm text-white bg-violet-600 hover:bg-violet-500 rounded-lg"
-              >
+                onClick={() => { if (presetName) { savePreset(presetName); setShowSave(false); } }}
+                disabled={!presetName}
+                className="flex-1 py-2.5 text-sm text-white bg-violet-700 hover:bg-violet-600 disabled:opacity-40 rounded-xl transition-colors font-medium">
                 保存
               </button>
             </div>
@@ -423,125 +326,130 @@ export default function Synthesizer() {
   );
 }
 
-// ---- ADSR Visual ----
+/* ─────────────────────────────────────────── */
+/*  ADSR Visual Display                        */
+/* ─────────────────────────────────────────── */
 function ADSRDisplay({ envelope }: { envelope: { attack: number; decay: number; sustain: number; release: number } }) {
-  const w = 200, h = 40;
-  const pad = 5;
-  const aEnd = pad + (envelope.attack / 4) * (w - pad * 3);
-  const dEnd = aEnd + (envelope.decay / 4) * (w - pad * 3);
-  const sY = h - pad - envelope.sustain * (h - pad * 2);
-  const rEnd = w - pad;
+  const W = 220, H = 50, PAD = 8;
+  const IW = W - PAD * 2;
+  const segW = IW / 4;
 
-  const path = `M ${pad},${h - pad} L ${aEnd},${pad} L ${dEnd},${sY} L ${dEnd + (w - pad * 2) * 0.3},${sY} L ${rEnd},${h - pad}`;
+  const aX  = PAD + (envelope.attack  / 2)  * segW;
+  const dX  = aX  + (envelope.decay   / 2)  * segW;
+  const sX  = dX  + segW * 0.5;
+  const rX  = sX  + (envelope.release / 5)  * segW;
+
+  const topY = PAD;
+  const botY = H - PAD;
+  const susY = botY - envelope.sustain * (botY - topY);
+
+  const path = `M${PAD},${botY} L${aX},${topY} L${dX},${susY} L${sX},${susY} L${rX},${botY}`;
 
   return (
-    <svg width={w} height={h} className="mt-2 mx-auto">
-      <path d={path} fill="none" stroke="#a78bfa" strokeWidth={2} strokeLinejoin="round" />
-      <path d={`${path} L ${pad},${h - pad}`} fill="#a78bfa22" />
+    <svg width={W} height={H} className="w-full">
+      <defs>
+        <linearGradient id="adsrGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#7c3aed" stopOpacity="0.5" />
+          <stop offset="100%" stopColor="#7c3aed" stopOpacity="0.05" />
+        </linearGradient>
+      </defs>
+      <path d={`${path} L${PAD},${botY} Z`} fill="url(#adsrGrad)" />
+      <path d={path} fill="none" stroke="#a78bfa" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      {/* Stage dots */}
+      {[
+        { x: aX, y: topY, label: 'A' },
+        { x: dX, y: susY, label: 'D' },
+        { x: sX, y: susY, label: 'S' },
+        { x: rX, y: botY, label: 'R' },
+      ].map(({ x, y, label }) => (
+        <g key={label}>
+          <circle cx={x} cy={y} r={3} fill="#a78bfa" />
+          <text x={x} y={y - 5} textAnchor="middle" fontSize={7} fill="#7c3aed">{label}</text>
+        </g>
+      ))}
     </svg>
   );
 }
 
-// ---- Piano Keyboard ----
+/* ─────────────────────────────────────────── */
+/*  Piano Keyboard                             */
+/* ─────────────────────────────────────────── */
 function PianoKeyboard({
-  octave, activeNotes, onNoteOn, onNoteOff,
+  octaves, activeNotes, onNoteOn, onNoteOff,
 }: {
-  octave: number;
+  octaves: number[];
   activeNotes: Set<number>;
   onNoteOn: (note: number) => void;
   onNoteOff: (note: number) => void;
 }) {
-  const octaves = [octave, octave + 1];
-  const whiteKeys = PIANO_KEYS.filter(k => !k.black);
+  const totalWhite = octaves.length * WHITE_KEYS.length;
+  const whiteW = `${100 / totalWhite}%`;
+
+  const whiteList: { midi: number; label: string; oi: number; ki: number }[] = [];
+  const blackList: { midi: number; oi: number; semi: number }[] = [];
+
+  for (let oi = 0; oi < octaves.length; oi++) {
+    const oct = octaves[oi];
+    WHITE_KEYS.forEach((k, ki) => {
+      whiteList.push({ midi: (oct + 1) * 12 + k.semi, label: `${k.name}${oct - 1}`, oi, ki });
+    });
+    BLACK_KEYS.forEach(k => {
+      blackList.push({ midi: (oct + 1) * 12 + k.semi, oi, semi: k.semi });
+    });
+  }
 
   return (
-    <div className="bg-gray-900 border border-gray-700 rounded-xl p-3">
-      <div className="text-xs text-gray-400 mb-2 flex items-center gap-1">
-        <span>🎹</span> ピアノキーボード (オクターブ {octave}–{octave + 1})
-      </div>
-      <div className="relative flex select-none" style={{ height: 100 }}>
-        {octaves.flatMap((oct, oi) =>
-          PIANO_KEYS.map(key => {
-            const midi = (oct + 1) * 12 + key.note;
-            const isActive = activeNotes.has(midi);
-
-            if (key.black) {
-              // Find position after previous white key
-              const whiteIndex = oi * 7 + whiteKeys.findIndex(
-                (_, wi) => PIANO_KEYS.filter(k => !k.black).indexOf(PIANO_KEYS.filter(k => !k.black)[wi]) >= 0 &&
-                PIANO_KEYS.indexOf(key) > PIANO_KEYS.indexOf(PIANO_KEYS.filter(k => !k.black)[wi])
-              );
-              return null; // handle below
-            }
-            return null;
-          })
-        )}
-        {/* Render all white keys first, then black keys on top */}
-        {[0, 1].map(oi => {
-          const oct = octaves[oi];
-          return whiteKeys.map((key, wi) => {
-            const midi = (oct + 1) * 12 + key.note;
-            const isActive = activeNotes.has(midi);
-            const totalWhite = 7;
-            const xPct = ((oi * totalWhite + wi) / (octaves.length * totalWhite)) * 100;
-
-            return (
-              <div
-                key={`w-${oct}-${key.note}`}
-                className={`absolute bottom-0 border border-gray-400 rounded-b-md cursor-pointer transition-colors select-none ${
-                  isActive ? 'bg-violet-400' : 'bg-gray-100 hover:bg-gray-200 active:bg-violet-300'
+    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4">
+      <p className="text-[10px] text-gray-600 mb-3 flex items-center gap-1">
+        <span>🎹</span> ピアノキーボード (オクターブ {octaves[0]}–{octaves[octaves.length-1]+1})
+      </p>
+      <div className="relative" style={{ height: 110, userSelect: 'none' }}>
+        {/* White keys */}
+        {whiteList.map(({ midi, label, oi, ki }) => {
+          const active = activeNotes.has(midi);
+          const xPct   = ((oi * WHITE_KEYS.length + ki) / totalWhite) * 100;
+          return (
+            <div
+              key={midi}
+              className={`piano-key absolute bottom-0 rounded-b-lg border transition-colors
+                ${active
+                  ? 'bg-violet-400 border-violet-300'
+                  : 'bg-gray-100 hover:bg-gray-200 border-gray-400'
                 }`}
-                style={{
-                  left: `${xPct}%`,
-                  width: `${100 / (octaves.length * 7)}%`,
-                  height: '100%',
-                  zIndex: 1,
-                }}
-                onMouseDown={() => onNoteOn(midi)}
-                onMouseUp={() => onNoteOff(midi)}
-                onMouseLeave={() => { if (activeNotes.has(midi)) onNoteOff(midi); }}
-              >
-                <div className="absolute bottom-1 w-full text-center text-[8px] text-gray-400">
-                  {key.name}{oct - 1}
-                </div>
-              </div>
-            );
-          });
+              style={{ left: `${xPct}%`, width: whiteW, height: '100%', zIndex: 1 }}
+              onMouseDown={e => { e.preventDefault(); onNoteOn(midi); }}
+              onMouseUp={()  => onNoteOff(midi)}
+              onMouseLeave={() => { if (activeNotes.has(midi)) onNoteOff(midi); }}
+            >
+              <span className="absolute bottom-1 left-0 right-0 text-center text-[8px] text-gray-400 select-none">
+                {label}
+              </span>
+            </div>
+          );
         })}
-        {/* Black keys */}
-        {[0, 1].map(oi => {
-          const oct = octaves[oi];
-          const blackOffsets = [1, 2, 4, 5, 6]; // white key indices before each black key
-          return [
-            { note: 1, wBefore: 0 },
-            { note: 3, wBefore: 1 },
-            { note: 6, wBefore: 3 },
-            { note: 8, wBefore: 4 },
-            { note: 10, wBefore: 5 },
-          ].map(({ note, wBefore }) => {
-            const midi = (oct + 1) * 12 + note;
-            const isActive = activeNotes.has(midi);
-            const totalWhite = 7;
-            const xPct = ((oi * totalWhite + wBefore + 0.6) / (octaves.length * totalWhite)) * 100;
 
-            return (
-              <div
-                key={`b-${oct}-${note}`}
-                className={`absolute top-0 border border-gray-900 rounded-b-md cursor-pointer transition-colors select-none ${
-                  isActive ? 'bg-violet-500' : 'bg-gray-900 hover:bg-gray-800 active:bg-violet-600'
+        {/* Black keys */}
+        {blackList.map(({ midi, oi, semi }) => {
+          const active   = activeNotes.has(midi);
+          const wBefore  = BLACK_POS[semi]; // white key index within octave
+          const globalWi = oi * WHITE_KEYS.length + wBefore;
+          const xPct     = ((globalWi + 0.6) / totalWhite) * 100;
+          const wPct     = (0.65 / totalWhite) * 100;
+
+          return (
+            <div
+              key={midi}
+              className={`piano-key absolute top-0 rounded-b-md border-x border-b transition-colors
+                ${active
+                  ? 'bg-violet-600 border-violet-500'
+                  : 'bg-gray-950 hover:bg-gray-800 border-gray-700'
                 }`}
-                style={{
-                  left: `${xPct}%`,
-                  width: `${60 / (octaves.length * 7)}%`,
-                  height: '60%',
-                  zIndex: 10,
-                }}
-                onMouseDown={e => { e.stopPropagation(); onNoteOn(midi); }}
-                onMouseUp={e => { e.stopPropagation(); onNoteOff(midi); }}
-                onMouseLeave={() => { if (activeNotes.has(midi)) onNoteOff(midi); }}
-              />
-            );
-          });
+              style={{ left: `${xPct}%`, width: `${wPct}%`, height: '62%', zIndex: 10 }}
+              onMouseDown={e => { e.stopPropagation(); e.preventDefault(); onNoteOn(midi); }}
+              onMouseUp={e  => { e.stopPropagation(); onNoteOff(midi); }}
+              onMouseLeave={() => { if (activeNotes.has(midi)) onNoteOff(midi); }}
+            />
+          );
         })}
       </div>
     </div>

@@ -5,7 +5,7 @@ import Transport from './Transport';
 import TrackHeader from './TrackHeader';
 import Timeline from './Timeline';
 import PianoRoll from './PianoRoll';
-import { Plus, AudioLines, Piano, Layers } from 'lucide-react';
+import { Mic, Piano, Layers, PlusCircle } from 'lucide-react';
 
 export default function DAW() {
   const { tracks, addTrack } = useAppStore();
@@ -15,47 +15,41 @@ export default function DAW() {
       <Transport />
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Track headers */}
-        <div className="w-48 flex-shrink-0 bg-gray-900 border-r border-gray-700 flex flex-col overflow-y-auto">
-          {/* Ruler spacer */}
-          <div className="h-6 bg-gray-950 border-b border-gray-700 flex-shrink-0" />
+        {/* ── Track headers ── */}
+        <div className="w-44 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col overflow-y-auto">
+          {/* Spacer aligns with ruler */}
+          <div className="h-6 bg-gray-950 border-b border-gray-800 flex-shrink-0" />
 
           {tracks.map(track => (
             <TrackHeader key={track.id} track={track} />
           ))}
 
           {/* Add track buttons */}
-          <div className="p-2 flex flex-col gap-1 border-t border-gray-800 mt-auto">
-            <p className="text-[10px] text-gray-500 mb-1">トラック追加</p>
-            <button
-              onClick={() => addTrack('audio')}
-              className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white px-2 py-1 rounded hover:bg-gray-800 transition-colors"
-            >
-              <AudioLines size={12} className="text-cyan-400" />
-              オーディオ
-            </button>
-            <button
-              onClick={() => addTrack('midi')}
-              className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white px-2 py-1 rounded hover:bg-gray-800 transition-colors"
-            >
-              <Piano size={12} className="text-violet-400" />
-              MIDI
-            </button>
-            <button
-              onClick={() => addTrack('sample')}
-              className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-white px-2 py-1 rounded hover:bg-gray-800 transition-colors"
-            >
-              <Layers size={12} className="text-orange-400" />
-              サンプル
-            </button>
+          <div className="mt-auto border-t border-gray-800 p-2 space-y-0.5">
+            <p className="text-[9px] uppercase tracking-widest text-gray-700 px-1 mb-1">トラック追加</p>
+            {([
+              { type: 'audio',  label: 'オーディオ', icon: <Mic  size={11} />, color: 'text-cyan-400' },
+              { type: 'midi',   label: 'MIDI',       icon: <Piano size={11} />, color: 'text-violet-400' },
+              { type: 'sample', label: 'サンプル',    icon: <Layers size={11} />, color: 'text-orange-400' },
+            ] as const).map(({ type, label, icon, color }) => (
+              <button
+                key={type}
+                onClick={() => addTrack(type)}
+                className="flex items-center gap-2 w-full text-[11px] text-gray-500 hover:text-white
+                  px-2 py-1.5 rounded-lg hover:bg-gray-800 transition-all group"
+              >
+                <span className={`${color} group-hover:scale-110 transition-transform`}>{icon}</span>
+                {label}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Timeline */}
+        {/* ── Timeline ── */}
         <Timeline />
       </div>
 
-      {/* Piano Roll Modal */}
+      {/* ── Piano Roll modal ── */}
       <PianoRoll />
     </div>
   );

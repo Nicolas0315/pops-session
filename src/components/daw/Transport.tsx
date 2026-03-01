@@ -2,11 +2,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { getAudioContext, Metronome } from '@/lib/audioEngine';
-import {
-  Play, Square, Circle, Repeat, Music, SkipBack,
-  Metronome as MetronomeIcon,
-  ZoomIn, ZoomOut
-} from 'lucide-react';
+import { Play, Square, Circle, Repeat, SkipBack, ZoomIn, ZoomOut, Music2 } from 'lucide-react';
 
 let metronomeInstance: Metronome | null = null;
 let playbackInterval: ReturnType<typeof setInterval> | null = null;
@@ -17,26 +13,26 @@ export default function Transport() {
     setCurrentBeat, setTransport, pixelsPerBeat, setPixelsPerBeat,
   } = useAppStore();
 
-  const { bpm, timeSignatureNum, timeSignatureDen, isPlaying, isRecording, isLooping, metronomeEnabled, currentBeat } = transport;
+  const { bpm, timeSignatureNum, timeSignatureDen, isPlaying, isRecording,
+          isLooping, metronomeEnabled, currentBeat } = transport;
 
-  // Playback clock
+  // High-accuracy playback clock using Web Audio time
   useEffect(() => {
     if (isPlaying) {
       const ctx = getAudioContext();
-      const startTime = ctx.currentTime;
+      const startAudioTime = ctx.currentTime;
       const startBeat = currentBeat;
-      const secondsPerBeat = 60 / bpm;
+      const spb = 60 / bpm;
 
       if (playbackInterval) clearInterval(playbackInterval);
       playbackInterval = setInterval(() => {
-        const elapsed = ctx.currentTime - startTime;
-        const newBeat = startBeat + elapsed / secondsPerBeat;
-        setCurrentBeat(newBeat);
-      }, 50);
+        const elapsed = ctx.currentTime - startAudioTime;
+        setCurrentBeat(startBeat + elapsed / spb);
+      }, 33);
     } else {
       if (playbackInterval) { clearInterval(playbackInterval); playbackInterval = null; }
     }
-    return () => { if (playbackInterval) clearInterval(playbackInterval); };
+    return () => { if (playbackInterval) { clearInterval(playbackInterval); playbackInterval = null; } };
   }, [isPlaying, bpm]);
 
   // Metronome
@@ -51,149 +47,124 @@ export default function Transport() {
   }, [isPlaying, metronomeEnabled, bpm, timeSignatureNum]);
 
   const handleStop = () => {
-    if (transport.isPlaying) togglePlay();
+    if (isPlaying) togglePlay();
     setCurrentBeat(0);
   };
 
-  const formatBeat = (beat: number) => {
+  const formatPosition = (beat: number) => {
     const bar = Math.floor(beat / timeSignatureNum) + 1;
-    const b = Math.floor(beat % timeSignatureNum) + 1;
-    return `${bar}:${b}`;
+    const b   = Math.floor(beat % timeSignatureNum) + 1;
+    const t   = Math.floor((beat * 4) % 4);
+    return `${String(bar).padStart(3,'0')}:${b}:${t}`;
   };
 
-  const btnBase = 'flex items-center justify-center rounded-lg transition-all duration-150 border';
+  const btn = (active: boolean, activeClass: string) =>
+    `flex items-center justify-center rounded-lg border transition-all duration-150 select-none
+     ${active ? activeClass : 'border-gray-700 text-gray-400 hover:border-gray-500 hover:text-gray-200'}`;
 
   return (
-    <div className="flex items-center gap-3 bg-gray-900 border-b border-gray-700 px-4 py-2 select-none flex-wrap">
-      {/* Logo */}
-      <div className="flex items-center gap-2 mr-4">
-        <div className="w-7 h-7 bg-gradient-to-br from-violet-500 to-pink-500 rounded-lg flex items-center justify-center">
-          <Music size={14} className="text-white" />
-        </div>
-        <span className="text-white font-bold text-sm tracking-wide">Pops Session</span>
-      </div>
+    <div className="flex items-center gap-2 bg-gray-900 border-b border-gray-800 px-3 py-2 select-none flex-wrap min-h-[52px]">
 
-      {/* Transport buttons */}
-      <div className="flex items-center gap-1.5">
-        {/* Skip back */}
-        <button
-          onClick={() => setCurrentBeat(0)}
-          className={`${btnBase} w-8 h-8 border-gray-600 hover:border-gray-400 text-gray-300 hover:text-white`}
-          title="先頭へ"
-        >
-          <SkipBack size={14} />
+      {/* ── Transport controls ── */}
+      <div className="flex items-center gap-1">
+        <button onClick={() => setCurrentBeat(0)}
+          className={`${btn(false,'')} w-8 h-8`} title="先頭へ (Home)">
+          <SkipBack size={13} />
         </button>
 
-        {/* Play */}
-        <button
-          onClick={togglePlay}
-          className={`${btnBase} w-10 h-10 ${isPlaying
-            ? 'border-green-500 bg-green-500/20 text-green-400'
-            : 'border-gray-600 hover:border-green-500 text-gray-300 hover:text-green-400'}`}
-          title="再生/停止"
-        >
+        <button onClick={togglePlay}
+          className={`${btn(isPlaying, 'border-emerald-500 bg-emerald-500/15 text-emerald-400 glow-green')} w-10 h-10`}
+          title={isPlaying ? '一時停止 (Space)' : '再生 (Space)'}>
           {isPlaying
-            ? <div className="flex gap-0.5"><div className="w-1 h-4 bg-current rounded-sm"/><div className="w-1 h-4 bg-current rounded-sm"/></div>
+            ? <div className="flex gap-[3px]"><div className="w-[3px] h-4 bg-current rounded-sm"/><div className="w-[3px] h-4 bg-current rounded-sm"/></div>
             : <Play size={16} fill="currentColor" />}
         </button>
 
-        {/* Stop */}
-        <button
-          onClick={handleStop}
-          className={`${btnBase} w-8 h-8 border-gray-600 hover:border-red-500 text-gray-300 hover:text-red-400`}
-          title="停止"
-        >
-          <Square size={14} fill="currentColor" />
+        <button onClick={handleStop}
+          className={`${btn(false,'')} w-8 h-8`} title="停止 (Esc)">
+          <Square size={12} fill="currentColor" />
         </button>
 
-        {/* Record */}
-        <button
-          onClick={toggleRecord}
-          className={`${btnBase} w-8 h-8 ${isRecording
-            ? 'border-red-500 bg-red-500/20 text-red-400 animate-pulse'
-            : 'border-gray-600 hover:border-red-500 text-gray-300 hover:text-red-400'}`}
-          title="録音"
-        >
-          <Circle size={14} fill="currentColor" />
+        <button onClick={toggleRecord}
+          className={`${btn(isRecording, 'border-red-500 bg-red-500/15 text-red-400 glow-red animate-pulse')} w-8 h-8`}
+          title="録音 (R)">
+          <Circle size={13} fill="currentColor" />
         </button>
 
-        {/* Loop */}
-        <button
-          onClick={toggleLoop}
-          className={`${btnBase} w-8 h-8 ${isLooping
-            ? 'border-violet-500 bg-violet-500/20 text-violet-400'
-            : 'border-gray-600 hover:border-violet-500 text-gray-300 hover:text-violet-400'}`}
-          title="ループ"
-        >
-          <Repeat size={14} />
+        <div className="w-px h-6 bg-gray-800 mx-1" />
+
+        <button onClick={toggleLoop}
+          className={`${btn(isLooping, 'border-violet-500 bg-violet-500/15 text-violet-400')} w-8 h-8`}
+          title="ループ (L)">
+          <Repeat size={13} />
         </button>
 
-        {/* Metronome */}
-        <button
-          onClick={toggleMetronome}
-          className={`${btnBase} w-8 h-8 ${metronomeEnabled
-            ? 'border-amber-500 bg-amber-500/20 text-amber-400'
-            : 'border-gray-600 hover:border-amber-500 text-gray-300 hover:text-amber-400'}`}
-          title="メトロノーム"
-        >
-          <Music size={14} />
+        <button onClick={toggleMetronome}
+          className={`${btn(metronomeEnabled, 'border-amber-500 bg-amber-500/15 text-amber-400')} w-8 h-8`}
+          title="メトロノーム (M)">
+          <Music2 size={13} />
         </button>
       </div>
 
-      {/* Position display */}
-      <div className="bg-black border border-gray-700 rounded px-3 py-1 font-mono text-green-400 text-sm min-w-[70px] text-center">
-        {formatBeat(currentBeat)}
+      {/* ── Position readout ── */}
+      <div className="bg-black border border-gray-800 rounded-lg px-3 py-1.5 font-mono text-emerald-400 text-sm tracking-widest min-w-[100px] text-center shadow-inner">
+        {formatPosition(currentBeat)}
       </div>
 
-      {/* BPM */}
-      <div className="flex items-center gap-1.5">
-        <span className="text-gray-400 text-xs">BPM</span>
-        <input
-          type="number"
-          value={bpm}
-          min={40} max={240}
-          onChange={e => setBPM(Number(e.target.value))}
-          className="w-16 bg-black border border-gray-700 rounded px-2 py-1 text-green-400 font-mono text-sm text-center focus:outline-none focus:border-violet-500"
-        />
-        <div className="flex flex-col gap-0.5">
-          <button onClick={() => setBPM(Math.min(240, bpm + 1))} className="text-gray-500 hover:text-white text-xs leading-none">▲</button>
-          <button onClick={() => setBPM(Math.max(40, bpm - 1))} className="text-gray-500 hover:text-white text-xs leading-none">▼</button>
+      {/* ── BPM ── */}
+      <div className="flex items-center gap-1">
+        <div className="flex flex-col items-center">
+          <span className="text-[9px] text-gray-600 uppercase tracking-wider mb-0.5">BPM</span>
+          <div className="flex items-center gap-0.5">
+            <input
+              type="number"
+              value={bpm}
+              min={40} max={250}
+              onChange={e => setBPM(Number(e.target.value))}
+              className="w-14 bg-black border border-gray-800 rounded-md px-1.5 py-1 text-amber-400 font-mono text-sm text-center focus:outline-none focus:border-violet-600 transition-colors"
+            />
+            <div className="flex flex-col">
+              <button onClick={() => setBPM(Math.min(250, bpm + 1))} className="text-gray-600 hover:text-white text-[10px] leading-none px-0.5">▲</button>
+              <button onClick={() => setBPM(Math.max(40,  bpm - 1))} className="text-gray-600 hover:text-white text-[10px] leading-none px-0.5">▼</button>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Time signature */}
+      {/* ── Time signature ── */}
       <div className="flex items-center gap-1">
-        <span className="text-gray-400 text-xs">拍子</span>
-        <select
-          value={timeSignatureNum}
-          onChange={e => setTransport({ timeSignatureNum: Number(e.target.value) })}
-          className="bg-black border border-gray-700 rounded px-1.5 py-1 text-gray-300 text-xs focus:outline-none focus:border-violet-500"
-        >
-          {[2, 3, 4, 5, 6, 7, 8].map(n => <option key={n} value={n}>{n}</option>)}
-        </select>
-        <span className="text-gray-500 text-xs">/</span>
-        <select
-          value={timeSignatureDen}
-          onChange={e => setTransport({ timeSignatureDen: Number(e.target.value) })}
-          className="bg-black border border-gray-700 rounded px-1.5 py-1 text-gray-300 text-xs focus:outline-none focus:border-violet-500"
-        >
-          {[4, 8, 16].map(n => <option key={n} value={n}>{n}</option>)}
-        </select>
+        <div className="flex flex-col items-center">
+          <span className="text-[9px] text-gray-600 uppercase tracking-wider mb-0.5">拍子</span>
+          <div className="flex items-center gap-1">
+            <select
+              value={timeSignatureNum}
+              onChange={e => setTransport({ timeSignatureNum: Number(e.target.value) })}
+              className="bg-black border border-gray-800 rounded-md px-1.5 py-1 text-gray-300 text-xs focus:outline-none focus:border-violet-600 transition-colors"
+            >
+              {[2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <span className="text-gray-700 text-sm">/</span>
+            <select
+              value={timeSignatureDen}
+              onChange={e => setTransport({ timeSignatureDen: Number(e.target.value) })}
+              className="bg-black border border-gray-800 rounded-md px-1.5 py-1 text-gray-300 text-xs focus:outline-none focus:border-violet-600 transition-colors"
+            >
+              {[4,8,16].map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
+        </div>
       </div>
 
-      {/* Zoom */}
-      <div className="flex items-center gap-1 ml-auto">
-        <span className="text-gray-400 text-xs">ズーム</span>
-        <button
-          onClick={() => setPixelsPerBeat(Math.max(10, pixelsPerBeat - 10))}
-          className="w-7 h-7 bg-gray-800 border border-gray-700 rounded text-gray-400 hover:text-white hover:border-gray-500 flex items-center justify-center"
-        >
+      {/* ── Zoom ── */}
+      <div className="ml-auto flex items-center gap-1">
+        <span className="text-[10px] text-gray-600">ズーム</span>
+        <button onClick={() => setPixelsPerBeat(Math.max(10, pixelsPerBeat - 10))}
+          className="w-7 h-7 bg-gray-900 border border-gray-800 rounded-md text-gray-500 hover:text-white hover:border-gray-600 flex items-center justify-center transition-all">
           <ZoomOut size={12} />
         </button>
-        <button
-          onClick={() => setPixelsPerBeat(Math.min(200, pixelsPerBeat + 10))}
-          className="w-7 h-7 bg-gray-800 border border-gray-700 rounded text-gray-400 hover:text-white hover:border-gray-500 flex items-center justify-center"
-        >
+        <div className="text-[10px] text-gray-600 w-8 text-center font-mono">{pixelsPerBeat}</div>
+        <button onClick={() => setPixelsPerBeat(Math.min(200, pixelsPerBeat + 10))}
+          className="w-7 h-7 bg-gray-900 border border-gray-800 rounded-md text-gray-500 hover:text-white hover:border-gray-600 flex items-center justify-center transition-all">
           <ZoomIn size={12} />
         </button>
       </div>
