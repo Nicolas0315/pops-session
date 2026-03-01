@@ -51,8 +51,10 @@ class MIDIEngine {
   onNoteOff(h: MIDINoteHandler) { this.noteOffH.push(h); return () => { this.noteOffH = this.noteOffH.filter(x => x !== h); }; }
   onCC(h: MIDIControlHandler) { this.ccH.push(h); return () => { this.ccH = this.ccH.filter(x => x !== h); }; }
   onPitchBend(h: (v: number, ch: number) => void) { this.pbH.push(h); return () => { this.pbH = this.pbH.filter(x => x !== h); }; }
+  onPolyAftertouch(h: (note: number, pressure: number, ch: number) => void) { this.atH.push(h); return () => { this.atH = this.atH.filter(x => x !== h); }; }
+  onChannelAftertouch(h: (pressure: number, ch: number) => void) { this.catH.push(h); return () => { this.catH = this.catH.filter(x => x !== h); }; }
   onDeviceChange(h: (d: MIDIDevice[]) => void) { this.devH.push(h); return () => { this.devH = this.devH.filter(x => x !== h); }; }
-  dispose() { this.noteOnH = []; this.noteOffH = []; this.ccH = []; this.pbH = []; this.devH = []; }
+  dispose() { this.noteOnH = []; this.noteOffH = []; this.ccH = []; this.pbH = []; this.atH = []; this.catH = []; this.devH = []; }
 }
 
 export function midiToFreq(note: number): number { return 440 * Math.pow(2, (note - 69) / 12); }

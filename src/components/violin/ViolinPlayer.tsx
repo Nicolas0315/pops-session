@@ -13,6 +13,10 @@ export default function ViolinPlayer() {
   const [bowSpeed, setBowSpeed] = useState(0.5);
   const [bowPosition, setBowPosition] = useState(0.12);
   const [vibrato, setVibrato] = useState(0);
+  const [pitchBend, setPitchBend] = useState(0);
+  const [brightness, setBrightness] = useState(0.5);
+  const [bowNoise, setBowNoise] = useState(0.02);
+  const [bendRange, setBendRange] = useState(2);
   const [lastCC, setLastCC] = useState("");
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animRef = useRef<number>(0);
@@ -44,10 +48,21 @@ export default function ViolinPlayer() {
       if (controller === 1) { engine.bowPressure = n; setBowPressure(n); }
       if (controller === 2) { engine.bowSpeed = n; setBowSpeed(n); }
       if (controller === 11) { engine.bowPositionRatio = 0.05 + n * 0.2; setBowPosition(engine.bowPositionRatio); }
+      if (controller === 71) { engine.brightness = n; setBrightness(n); }
       if (controller === 74) { engine.vibrato = n * 50; setVibrato(n * 50); }
     });
-    const off4 = midiEngine.onDeviceChange(d => setMidiDevices(d));
-    return () => { off1(); off2(); off3(); off4(); };
+    const off4 = midiEngine.onPitchBend((value) => {
+      engine.pitchBend = value;
+      setPitchBend(value);
+    });
+    const off5 = midiEngine.onPolyAftertouch((note, pressure) => {
+      engine.polyAftertouch(note, pressure);
+    });
+    const off6 = midiEngine.onChannelAftertouch((pressure) => {
+      engine.channelAftertouch(pressure);
+    });
+    const off7 = midiEngine.onDeviceChange(d => setMidiDevices(d));
+    return () => { off1(); off2(); off3(); off4(); off5(); off6(); off7(); };
   }, [engine]);
 
   useEffect(() => {
@@ -136,6 +151,21 @@ export default function ViolinPlayer() {
           <span key={n} className="px-2 py-1 bg-amber-500/20 text-amber-300 text-xs rounded font-mono">{midiToName(n)}</span>
         ))}
       </div>
+      {/* Pitch Bend Display */}
+      {pitchBend !== 0 && (
+        <div className="flex items-center gap-3 px-4 py-2 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+          <span className="text-xs text-purple-400 font-mono">Pitch Bend</span>
+          <div className="flex-1 h-2 bg-zinc-800 rounded-full relative">
+            <div className="absolute top-0 left-1/2 w-0.5 h-full bg-zinc-600" />
+            <div className="absolute top-0 h-full bg-purple-500 rounded-full transition-all"
+              style={{ left: `${50 + pitchBend * 50}%`, width: '4px', marginLeft: '-2px' }} />
+          </div>
+          <span className="text-xs text-purple-300 font-mono w-20 text-right">
+            {(pitchBend * bendRange > 0 ? '+' : '')}{(pitchBend * bendRange).toFixed(2)} st
+          </span>
+        </div>
+      )}
+      {/* Bow Parameters */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="space-y-1">
           <label className="text-xs text-zinc-400">弓圧 (CC1)</label>
@@ -164,6 +194,37 @@ export default function ViolinPlayer() {
             onChange={e => { const v = parseFloat(e.target.value)*50; setVibrato(v); if (engine) engine.vibrato = v; }}
             className="w-full h-2 bg-zinc-800 rounded-lg cursor-pointer accent-blue-500" />
           <div className="text-xs text-zinc-500 text-right">{vibrato.toFixed(0)} cents</div>
+        </div>
+      </div>
+      {/* Extended Parameters */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="space-y-1">
+          <label className="text-xs text-zinc-400">ブライトネス (CC71)</label>
+          <input type="range" min={0} max={1} step={0.01} value={brightness}
+            onChange={e => { const v = parseFloat(e.target.value); setBrightness(v); if (engine) engine.brightness = v; }}
+            className="w-full h-2 bg-zinc-800 rounded-lg cursor-pointer accent-yellow-500" />
+          <div className="text-xs text-zinc-500 text-right">{(brightness*100).toFixed(0)}%</div>
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-zinc-400">弓ノイズ (松脂)</label>
+          <input type="range" min={0} max={0.1} step={0.001} value={bowNoise}
+            onChange={e => { const v = parseFloat(e.target.value); setBowNoise(v); if (engine) engine.bowNoise = v; }}
+            className="w-full h-2 bg-zinc-800 rounded-lg cursor-pointer accent-orange-500" />
+          <div className="text-xs text-zinc-500 text-right">{(bowNoise*1000).toFixed(0)}</div>
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-zinc-400">ベンド幅</label>
+          <input type="range" min={1} max={12} step={1} value={bendRange}
+            onChange={e => { const v = parseInt(e.target.value); setBendRange(v); if (engine) engine.bendRange = v; }}
+            className="w-full h-2 bg-zinc-800 rounded-lg cursor-pointer accent-purple-500" />
+          <div className="text-xs text-zinc-500 text-right">±{bendRange} st</div>
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-zinc-400">共鳴弦</label>
+          <input type="range" min={0} max={1} step={0.01} value={0.5}
+            onChange={e => { if (engine) engine.stringResonance = parseFloat(e.target.value); }}
+            className="w-full h-2 bg-zinc-800 rounded-lg cursor-pointer accent-teal-500" />
+          <div className="text-xs text-zinc-500 text-right">50%</div>
         </div>
       </div>
       <div className="text-xs text-zinc-600 text-center">
