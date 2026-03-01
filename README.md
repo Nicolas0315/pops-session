@@ -1,36 +1,63 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🎵 Pops Session — Web DAW
 
-## Getting Started
+フル機能のブラウザDAW。マルチトラックタイムライン、シンセサイザー、サンプラーを搭載。
 
-First, run the development server:
+## 機能
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+### 1. DAW（デジタルオーディオワークステーション）
+- マルチトラックタイムライン（ドラッグ&ドロップでクリップ配置）
+- トラックタイプ: オーディオ / MIDI / サンプル
+- トランスポートコントロール（再生・停止・録音・ループ・BPM・拍子）
+- ピアノロール（MIDIクリップのノート編集）
+- 内蔵メトロノーム
+
+### 2. サンプルブラウザ
+- カテゴリ別サンプル（ドラム・ベース・シンセ・FX・ボーカル）
+- クリックでプレビュー再生
+- タイムラインへのドラッグ&ドロップ
+- 10種の内蔵サンプル（Web Audio APIで生成）
+- ローカルファイルのインポート（wav, mp3, flac, ogg, aiff）
+
+### 3. オシレーターシンセサイザー
+- 4種類のオシレーター（サイン・矩形波・ノコギリ・三角波）
+- ADSRエンベロープ（ビジュアル表示付き）
+- フィルター（ローパス・ハイパス・バンドパス）
+- LFOモジュレーション（ピッチ・フィルター・アンプ）
+- エフェクト（リバーブ・ディレイ・ディストーション）
+- オンスクリーンピアノキーボード（2オクターブ、クリック＋キーボード操作）
+- プリセット保存・読み込み
+- リアルタイムスペクトルアナライザー・オシロスコープ
+
+## キーボードマッピング（シンセ）
+
+```
+白鍵: A S D F G H J K L ;
+黒鍵: W E   T Y U   O P
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## セットアップ
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm install
+npm run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## デプロイ
 
-## Learn More
+### Vercel（GitHub連携推奨）
+1. [vercel.com](https://vercel.com) にログイン
+2. 「New Project」→ `Nicolas0315/pops-session` をインポート
+3. デフォルト設定のまま「Deploy」
 
-To learn more about Next.js, take a look at the following resources:
+### または CLI
+```bash
+npx vercel --prod --yes --archive=tgz
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 技術スタック
+- Next.js 14 (App Router)
+- TypeScript
+- Tailwind CSS
+- Web Audio API
+- Zustand (状態管理)
+- Lucide React (アイコン)
