@@ -1,10 +1,11 @@
 'use client';
 // ============================================================
 // Pops Session — Web Audio Engine v2
-// Studio One 7 reference: Serum / Massive / Sylenth / Nexus
+// Studio One 7 reference: Mai Tai / Mojito / Serum / Massive
+// Parameter mapping validated against preset-mappings.json
 // ============================================================
 
-import type { SynthPreset, ADSREnvelope } from '@/types';
+import type { SynthPreset, ADSREnvelope, FilterEnvelope } from '@/types';
 
 let audioContext: AudioContext | null = null;
 
@@ -428,56 +429,86 @@ export class SynthEngine {
     return ir;
   }
 
-  /** noteOn — supports supersaw via multiple detuned oscillators */
+  /**
+   * noteOn — Mai Tai / Mojito accurate parameter mapping
+   *
+   * Filter resonance: S1 uses 0–1 scale; we map → Q 0.1–30 (×30)
+   * Filter envelope: schedules filterNode.frequency via WebAudio automation
+   *   (mirrors Mai Tai's ADSR2 → filter mod)
+   * Unison voices: equal-power summed, spread evenly in cents
+   */
   noteOn(midiNote: number, velocity: number, preset: SynthPreset) {
     if (this.activeNotes.has(midiNote)) this.noteOff(midiNote);
-    const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
-    const now  = this.ctx.currentTime;
-    const { envelope, filter, lfo, effects } = preset;
 
-    // Determine unison count from preset (stored in detune field convention)
-    // unisonVoices: 1 = mono, 3 = supersaw, 7 = thick
+    const freq   = 440 * Math.pow(2, (midiNote - 69) / 12);
+    const now    = this.ctx.currentTime;
+    const { envelope, filter, filterEnvelope, lfo, effects } = preset;
     const voices = preset.unisonVoices ?? 1;
-    const spread = preset.unisonSpread ?? 0; // cents total spread
+    const spread = preset.unisonSpread ?? 0;
+    const vel    = velocity / 127;
 
-    // Filter
+    // ── Filter node ──────────────────────────────────────
+    // S1 resonance is 0–1; map to BiquadFilter Q (0.1–30)
     const filterNode = this.ctx.createBiquadFilter();
-    filterNode.type = filter.type;
+    filterNode.type           = filter.type;
     filterNode.frequency.value = filter.cutoff;
-    filterNode.Q.value = filter.resonance;
+    filterNode.Q.value        = filter.resonance; // already 0–30 in our type
 
-    // Master voice gain
+    // ── Filter envelope (Mai Tai ADSR2 → filter mod) ─────
+    // Schedules frequency automation: cutoff → cutoff+amount (peak) → cutoff+amount*sustain
+    if (filterEnvelope && filterEnvelope.amount !== 0) {
+      const fe       = filterEnvelope;
+      const baseCut  = filter.cutoff;
+      const peakCut  = Math.min(20000, baseCut + fe.amount);
+      const sustCut  = Math.min(20000, baseCut + fe.amount * fe.sustain);
+      filterNode.frequency.cancelScheduledValues(now);
+      filterNode.frequency.setValueAtTime(baseCut, now);
+      filterNode.frequency.linearRampToValueAtTime(peakCut, now + fe.attack);
+      filterNode.frequency.linearRampToValueAtTime(sustCut, now + fe.attack + fe.decay);
+      // Note: noteOff will ramp back to baseCut over release time
+    }
+
+    // ── Amplitude envelope ───────────────────────────────
     const gainNode = this.ctx.createGain();
-    gainNode.gain.setValueAtTime(0, now);
-    const vel = velocity / 127;
-    gainNode.gain.linearRampToValueAtTime(vel * 0.75, now + envelope.attack);
-    gainNode.gain.linearRampToValueAtTime(vel * 0.75 * envelope.sustain, now + envelope.attack + envelope.decay);
+    gainNode.gain.setValueAtTime(0.0001, now);
+    gainNode.gain.linearRampToValueAtTime(vel * 0.75, now + Math.max(0.001, envelope.attack));
+    gainNode.gain.linearRampToValueAtTime(
+      vel * 0.75 * envelope.sustain,
+      now + envelope.attack + Math.max(0.001, envelope.decay),
+    );
 
-    // LFO
+    // ── LFO ─────────────────────────────────────────────
     const lfoOsc  = this.ctx.createOscillator();
+    lfoOsc.type            = 'sine';
     lfoOsc.frequency.value = lfo.rate;
     const lfoGain = this.ctx.createGain();
-    lfoGain.gain.value = lfo.depth * (lfo.target === 'pitch' ? 200 : lfo.target === 'filter' ? filter.cutoff * 0.5 : 0.3);
+    // Scale LFO depth to meaningful audible range per target
+    lfoGain.gain.value =
+      lfo.target === 'pitch'  ? lfo.depth * 200          :  // ±200 cents max
+      lfo.target === 'filter' ? lfo.depth * filter.cutoff * 0.8 :  // up to 80% of cutoff
+                                lfo.depth * 0.35;           // amp: ±35%
     lfoOsc.connect(lfoGain);
-    if (lfo.target === 'pitch')  lfoGain.connect(filterNode.frequency); // approximate
     if (lfo.target === 'filter') lfoGain.connect(filterNode.frequency);
     if (lfo.target === 'amp')    lfoGain.connect(gainNode.gain);
 
-    // Oscillator bank (unison)
+    // ── Oscillator bank (unison) ─────────────────────────
     const oscs: OscillatorNode[] = [];
     for (let v = 0; v < voices; v++) {
-      const osc = this.ctx.createOscillator();
-      osc.type  = preset.oscillatorType;
+      const osc       = this.ctx.createOscillator();
+      osc.type        = preset.oscillatorType;
       osc.frequency.value = freq;
-      // Spread detune evenly
+
+      // Spread voices linearly across ±spread/2 cents, plus global detune
       const detuneOffset = voices > 1
         ? ((v / (voices - 1)) - 0.5) * spread + preset.detune
         : preset.detune;
       osc.detune.value = detuneOffset;
+
+      // Pitch LFO connects to each oscillator's detune
       if (lfo.target === 'pitch') lfoGain.connect(osc.detune);
 
-      const voiceGain = this.ctx.createGain();
-      voiceGain.gain.value = 1 / Math.sqrt(voices); // equal-power sum
+      const voiceGain        = this.ctx.createGain();
+      voiceGain.gain.value   = 1 / Math.sqrt(voices); // equal-power
       osc.connect(voiceGain);
       voiceGain.connect(filterNode);
       osc.start(now);
@@ -487,27 +518,37 @@ export class SynthEngine {
     filterNode.connect(gainNode);
     gainNode.connect(this.masterGain);
 
-    // Apply effects
-    this.distortionNode.curve = this._makeCurve(effects.distortion);
+    // ── Global effects (shared, not per-note) ────────────
+    this.distortionNode.curve           = this._makeCurve(effects.distortion);
     this.delayWetGain.gain.setTargetAtTime(effects.delay, now, 0.01);
-    this.delayNode.delayTime.value = effects.delayTime;
-    this.delayFeedback.gain.value = effects.delayFeedback ?? 0.35;
+    this.delayNode.delayTime.value      = effects.delayTime;
+    this.delayFeedback.gain.value       = effects.delayFeedback ?? 0.35;
     this.reverbWetGain.gain.setTargetAtTime(effects.reverb, now, 0.01);
 
     lfoOsc.start(now);
     this.activeNotes.set(midiNote, { oscs, gain: gainNode, filter: filterNode, lfo: lfoOsc, lfoGain });
   }
 
-  noteOff(midiNote: number, envelope?: ADSREnvelope) {
+  noteOff(midiNote: number, envelope?: ADSREnvelope, filterEnvelope?: FilterEnvelope, filterBaseCutoff?: number) {
     const note = this.activeNotes.get(midiNote);
     if (!note) return;
     const now     = this.ctx.currentTime;
     const release = envelope?.release ?? 0.3;
+
+    // Amplitude release
     note.gain.gain.cancelScheduledValues(now);
     note.gain.gain.setValueAtTime(note.gain.gain.value, now);
     note.gain.gain.linearRampToValueAtTime(0.0001, now + release);
-    for (const osc of note.oscs) { try { osc.stop(now + release + 0.01); } catch {} }
-    try { note.lfo.stop(now + release + 0.01); } catch {}
+
+    // Filter envelope release: ramp back to base cutoff
+    if (filterEnvelope && filterBaseCutoff !== undefined) {
+      note.filter.frequency.cancelScheduledValues(now);
+      note.filter.frequency.setValueAtTime(note.filter.frequency.value, now);
+      note.filter.frequency.linearRampToValueAtTime(filterBaseCutoff, now + release);
+    }
+
+    for (const osc of note.oscs) { try { osc.stop(now + release + 0.05); } catch {} }
+    try { note.lfo.stop(now + release + 0.05); } catch {}
     this.activeNotes.delete(midiNote);
   }
 

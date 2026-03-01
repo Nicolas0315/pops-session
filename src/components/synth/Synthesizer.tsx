@@ -79,9 +79,9 @@ export default function Synthesizer() {
   }, [synthPreset]);
 
   const noteOff = useCallback((midi: number) => {
-    _engine?.noteOff(midi, synthPreset.envelope);
+    _engine?.noteOff(midi, synthPreset.envelope, synthPreset.filterEnvelope, synthPreset.filter.cutoff);
     setActiveNotes(prev => { const s = new Set(prev); s.delete(midi); return s; });
-  }, [synthPreset.envelope]);
+  }, [synthPreset.envelope, synthPreset.filterEnvelope, synthPreset.filter.cutoff]);
 
   // ── Computer keyboard ─────────────────────────────────
   useEffect(() => {
@@ -160,6 +160,11 @@ export default function Synthesizer() {
           <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: catAccent }} />
           <span className="text-[11px] font-bold text-white tracking-wide">シンセサイザー</span>
           <span className="text-[10px] text-gray-600">— {synthPreset.name}</span>
+          {synthPreset.s1Source && (
+            <span className="text-[8px] px-1.5 py-0.5 rounded border border-violet-800/60 bg-violet-900/30 text-violet-400 font-mono tracking-wide">
+              S1 {synthPreset.s1Source}
+            </span>
+          )}
         </div>
 
         {/* Mode toggles */}
@@ -221,6 +226,16 @@ export default function Synthesizer() {
               </button>
             )}
           </div>
+
+          {/* S1 source info */}
+          {synthPreset.s1Notes && (
+            <div className="flex items-start gap-2 px-2.5 py-2 bg-gray-900/50 rounded-lg border border-gray-800/60">
+              <span className="text-[8px] px-1 py-0.5 rounded bg-violet-900/50 text-violet-400 font-mono flex-shrink-0 mt-0.5">
+                {synthPreset.s1Source ?? 'S1'}
+              </span>
+              <p className="text-[10px] text-gray-600 leading-relaxed">{synthPreset.s1Notes}</p>
+            </div>
+          )}
         </div>
 
         {/* ── Parameter grid ── */}
@@ -329,6 +344,68 @@ export default function Synthesizer() {
               <Knob value={filter.resonance} min={0} max={30}
                 onChange={v => updateSynthPreset({ filter: { ...filter, resonance: v } })}
                 label={`Q ${filter.resonance.toFixed(1)}`} color="#f97316" />
+            </div>
+
+            {/* ── Filter Envelope (Mai Tai ADSR2 / Mojito env mod) ── */}
+            <div className="border-t border-gray-800/60 pt-2.5 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[9px] text-gray-600 uppercase tracking-wider">Filter ENV</span>
+                <button
+                  onClick={() => {
+                    const fe = synthPreset.filterEnvelope;
+                    if (fe) {
+                      updateSynthPreset({ filterEnvelope: undefined });
+                    } else {
+                      updateSynthPreset({ filterEnvelope: { attack: 0.001, decay: 0.5, sustain: 0.0, amount: 4000 } });
+                    }
+                  }}
+                  className={`text-[9px] px-1.5 py-0.5 rounded border transition-all font-medium
+                    ${synthPreset.filterEnvelope
+                      ? 'border-cyan-500/60 bg-cyan-500/20 text-cyan-300'
+                      : 'border-gray-800 text-gray-700 hover:text-gray-500'}`}>
+                  {synthPreset.filterEnvelope ? 'ON' : 'OFF'}
+                </button>
+              </div>
+              {synthPreset.filterEnvelope && (() => {
+                const fe = synthPreset.filterEnvelope!;
+                return (
+                  <div className="space-y-1.5">
+                    {/* Amount */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] text-gray-600 w-14 flex-shrink-0">アマウント</span>
+                      <input type="range" min={-10000} max={10000} step={100}
+                        value={fe.amount}
+                        onChange={e => updateSynthPreset({ filterEnvelope: { ...fe, amount: Number(e.target.value) } })}
+                        className="flex-1 h-1" style={{ accentColor: '#22d3ee' }} />
+                      <span className="text-[9px] text-gray-500 font-mono w-14 text-right">
+                        {fe.amount >= 0 ? '+' : ''}{Math.round(fe.amount)}Hz
+                      </span>
+                    </div>
+                    {/* Decay */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] text-gray-600 w-14 flex-shrink-0">ディケイ</span>
+                      <input type="range" min={0.01} max={8} step={0.01}
+                        value={fe.decay}
+                        onChange={e => updateSynthPreset({ filterEnvelope: { ...fe, decay: Number(e.target.value) } })}
+                        className="flex-1 h-1" style={{ accentColor: '#22d3ee' }} />
+                      <span className="text-[9px] text-gray-500 font-mono w-14 text-right">
+                        {fe.decay.toFixed(2)}s
+                      </span>
+                    </div>
+                    {/* Sustain */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] text-gray-600 w-14 flex-shrink-0">サステイン</span>
+                      <input type="range" min={0} max={1} step={0.01}
+                        value={fe.sustain}
+                        onChange={e => updateSynthPreset({ filterEnvelope: { ...fe, sustain: Number(e.target.value) } })}
+                        className="flex-1 h-1" style={{ accentColor: '#22d3ee' }} />
+                      <span className="text-[9px] text-gray-500 font-mono w-14 text-right">
+                        {(fe.sustain * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
 

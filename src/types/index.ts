@@ -39,6 +39,14 @@ export interface EffectsParams {
   distortion:    number;   // 0–1
 }
 
+// Filter envelope: opens filter over time (Mai Tai / Massive style)
+export interface FilterEnvelope {
+  attack:  number;   // seconds
+  decay:   number;   // seconds — how fast filter sweeps back down
+  sustain: number;   // 0–1 (fraction of amount held after decay)
+  amount:  number;   // Hz added to base cutoff at peak (+/- range)
+}
+
 export interface SynthPreset {
   id:             string;
   name:           string;
@@ -46,12 +54,16 @@ export interface SynthPreset {
   oscillatorType: OscillatorType;
   envelope:       ADSREnvelope;
   filter:         FilterParams;
+  filterEnvelope?: FilterEnvelope;  // optional filter mod env (Mai Tai ADSR2)
   lfo:            LFOParams;
   effects:        EffectsParams;
   octave:         number;    // 1–7
   detune:         number;    // cents, -100–100
   unisonVoices?:  number;    // 1 | 2 | 3 | 5 | 7
   unisonSpread?:  number;    // cents total spread across voices
+  // S1 source metadata (informational)
+  s1Source?:      string;   // "Mai Tai" | "Mojito" | "Serum" etc.
+  s1Notes?:       string;
 }
 
 // ─── Sample Browser ───────────────────────────────────────

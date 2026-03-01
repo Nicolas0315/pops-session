@@ -2,6 +2,12 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { SWAMViolin } from "@/lib/swamViolin";
 import { midiEngine, midiToName, type MIDIDevice } from "@/lib/midiEngine";
+import {
+  type MIDIMapPreset, type MIDIMapping,
+  DEFAULT_MIDI_MAP, BUILT_IN_MAPS,
+  mapCCToParam, exportMidiMap, importMidiMap,
+  saveMidiMap, loadMidiMap, listSavedMaps,
+} from "@/lib/midiMap";
 
 export default function ViolinPlayer() {
   const [engine, setEngine] = useState<SWAMViolin | null>(null);
@@ -18,6 +24,9 @@ export default function ViolinPlayer() {
   const [bowNoise, setBowNoise] = useState(0.02);
   const [bendRange, setBendRange] = useState(2);
   const [lastCC, setLastCC] = useState("");
+  const [midiMap, setMidiMap] = useState<MIDIMapPreset>(DEFAULT_MIDI_MAP);
+  const [showMapEditor, setShowMapEditor] = useState(false);
+  const [learnMode, setLearnMode] = useState<string | null>(null); // param name being learned
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animRef = useRef<number>(0);
 
@@ -43,13 +52,39 @@ export default function ViolinPlayer() {
       setActiveNotes(p => { const n = new Set(p); n.delete(note); return n; });
     });
     const off3 = midiEngine.onCC(({ controller, value }) => {
-      const n = value / 127;
       setLastCC(`CC${controller}: ${value}`);
-      if (controller === 1) { engine.bowPressure = n; setBowPressure(n); }
-      if (controller === 2) { engine.bowSpeed = n; setBowSpeed(n); }
-      if (controller === 11) { engine.bowPositionRatio = 0.05 + n * 0.2; setBowPosition(engine.bowPositionRatio); }
-      if (controller === 71) { engine.brightness = n; setBrightness(n); }
-      if (controller === 74) { engine.vibrato = n * 50; setVibrato(n * 50); }
+
+      // MIDI Learn mode
+      if (learnMode) {
+        setMidiMap(prev => {
+          const updated = { ...prev, mappings: prev.mappings.map(m =>
+            m.param === learnMode ? { ...m, cc: controller } : m
+          )};
+          // If no mapping exists for this param, add one
+          if (!updated.mappings.find(m => m.param === learnMode)) {
+            updated.mappings.push({ cc: controller, param: learnMode as MIDIMapping['param'], min: 0, max: 1, curve: 'linear', label: `CC${controller} → ${learnMode}` });
+          }
+          return updated;
+        });
+        setLearnMode(null);
+        return;
+      }
+
+      // Apply MIDI map
+      const mapping = midiMap.mappings.find(m => m.cc === controller);
+      if (!mapping) return;
+      const val = mapCCToParam(value, mapping);
+
+      switch (mapping.param) {
+        case 'bowPressure': engine.bowPressure = val; setBowPressure(val); break;
+        case 'bowSpeed': engine.bowSpeed = val; setBowSpeed(val); break;
+        case 'bowPosition': engine.bowPositionRatio = val; setBowPosition(val); break;
+        case 'vibrato': engine.vibrato = val; setVibrato(val); break;
+        case 'brightness': engine.brightness = val; setBrightness(val); break;
+        case 'bowNoise': engine.bowNoise = val; setBowNoise(val); break;
+        case 'stringResonance': engine.stringResonance = val; break;
+        case 'volume': engine.volume = val; break;
+      }
     });
     const off4 = midiEngine.onPitchBend((value) => {
       engine.pitchBend = value;
@@ -229,6 +264,119 @@ export default function ViolinPlayer() {
       </div>
       <div className="text-xs text-zinc-600 text-center">
         キーボード: A=G3 S=A3 D=B3 F=C4 G=D4 H=E4 J=F4 K=G4 L=A4 Z=B4 X=C5 C=D5 V=E5
+      </div>
+
+      {/* MIDI Map Section */}
+      <div className="border-t border-zinc-800 pt-4">
+        <div className="flex items-center justify-between mb-3">
+          <button onClick={() => setShowMapEditor(!showMapEditor)}
+            className="text-sm font-medium text-zinc-300 hover:text-white transition">
+            🎛️ MIDI Map: {midiMap.name} {showMapEditor ? '▲' : '▼'}
+          </button>
+          <div className="flex gap-2">
+            {learnMode && (
+              <span className="px-2 py-1 bg-red-500/20 text-red-400 text-xs rounded animate-pulse">
+                LEARN: {learnMode} — CC入力待ち...
+              </span>
+            )}
+          </div>
+        </div>
+
+        {showMapEditor && (
+          <div className="space-y-4">
+            {/* Preset selector */}
+            <div className="flex gap-2 flex-wrap">
+              {BUILT_IN_MAPS.map(preset => (
+                <button key={preset.name}
+                  onClick={() => { setMidiMap(preset); if (engine) engine.bendRange = preset.bendRange; }}
+                  className={`px-3 py-1 text-xs rounded-full border transition ${
+                    midiMap.name === preset.name
+                      ? 'bg-amber-500/20 text-amber-400 border-amber-500/50'
+                      : 'text-zinc-500 border-zinc-700 hover:border-zinc-500'
+                  }`}>
+                  {preset.name}
+                </button>
+              ))}
+              {listSavedMaps().map(key => (
+                <button key={key}
+                  onClick={() => { const m = loadMidiMap(key); if (m) { setMidiMap(m); if (engine) engine.bendRange = m.bendRange; } }}
+                  className="px-3 py-1 text-xs rounded-full border text-zinc-500 border-zinc-700 hover:border-zinc-500 transition">
+                  💾 {key}
+                </button>
+              ))}
+            </div>
+
+            {/* Mapping table */}
+            <div className="bg-zinc-950 rounded-lg overflow-hidden">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-zinc-500 border-b border-zinc-800">
+                    <th className="px-3 py-2 text-left">CC</th>
+                    <th className="px-3 py-2 text-left">パラメータ</th>
+                    <th className="px-3 py-2 text-left">範囲</th>
+                    <th className="px-3 py-2 text-left">カーブ</th>
+                    <th className="px-3 py-2 text-right">Learn</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {midiMap.mappings.map((m, i) => (
+                    <tr key={i} className="border-b border-zinc-800/50 text-zinc-300">
+                      <td className="px-3 py-2 font-mono">CC{m.cc}</td>
+                      <td className="px-3 py-2">{m.label}</td>
+                      <td className="px-3 py-2 font-mono text-zinc-500">{m.min}–{m.max}</td>
+                      <td className="px-3 py-2 text-zinc-500">{m.curve}</td>
+                      <td className="px-3 py-2 text-right">
+                        <button
+                          onClick={() => setLearnMode(learnMode === m.param ? null : m.param)}
+                          className={`px-2 py-0.5 rounded text-xs ${
+                            learnMode === m.param
+                              ? 'bg-red-500 text-white'
+                              : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                          }`}>
+                          {learnMode === m.param ? '...' : 'Learn'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Export / Import / Save */}
+            <div className="flex gap-2">
+              <button onClick={() => {
+                const json = exportMidiMap(midiMap);
+                const blob = new Blob([json], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url;
+                a.download = `${midiMap.name.replace(/\s+/g, '_')}.midimap.json`;
+                a.click(); URL.revokeObjectURL(url);
+              }} className="px-3 py-1.5 bg-zinc-800 text-zinc-300 text-xs rounded hover:bg-zinc-700 transition">
+                📤 エクスポート
+              </button>
+              <label className="px-3 py-1.5 bg-zinc-800 text-zinc-300 text-xs rounded hover:bg-zinc-700 transition cursor-pointer">
+                📥 インポート
+                <input type="file" accept=".json,.midimap.json" className="hidden" onChange={e => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    const map = importMidiMap(reader.result as string);
+                    if (map) { setMidiMap(map); if (engine) engine.bendRange = map.bendRange; }
+                    else alert('無効なMIDIマップファイル');
+                  };
+                  reader.readAsText(file);
+                }} />
+              </label>
+              <button onClick={() => {
+                const name = prompt('マップ名:', midiMap.name);
+                if (name) { const saved = { ...midiMap, name }; saveMidiMap(name, saved); setMidiMap(saved); }
+              }} className="px-3 py-1.5 bg-amber-500/20 text-amber-400 text-xs rounded hover:bg-amber-500/30 transition">
+                💾 保存
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
