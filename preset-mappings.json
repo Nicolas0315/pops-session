@@ -1,0 +1,96 @@
+{
+  "source": "PreSonus Studio One 7 - Mai Tai / Mojito",
+  "format": "AudioEffectPreset XML (ZIP-compressed .preset)",
+  "parameterMapping": {
+    "oscillator": {
+      "s1_types": {"0": "sine", "1": "sawtooth", "2": "square", "3": "triangle"},
+      "s1_octaverange": "maps to detune cents (octaverange=2 → ±2400 cents)",
+      "s1_pulsewidth": "square wave duty cycle (0-1, 1=50%)",
+      "s1_stereowidth": "stereo spread (0=mono, 1=full)",
+      "s1_subosc_level": "sub-oscillator mix (one octave below)"
+    },
+    "envelope": {
+      "s1_attack": "seconds (0-20)",
+      "s1_decay": "seconds (0-20)",
+      "s1_sustain": "level (0-1)",
+      "s1_release": "seconds (0-20)",
+      "s1_curves": "negative=exponential, 0=linear, positive=logarithmic"
+    },
+    "filter": {
+      "s1_types": {"0": "lowpass", "1": "highpass", "2": "bandpass"},
+      "s1_cutoff": "Hz (20-20000)",
+      "s1_resonance": "0-1 (maps to Q 0.1-30)",
+      "s1_drive": "0-1 (pre-filter saturation)"
+    },
+    "lfo": {
+      "s1_types": {"0": "sine", "1": "square", "2": "sawtooth", "3": "triangle", "4": "random"},
+      "s1_frequency": "Hz (0.01-100)",
+      "s1_syncbeats": "tempo sync on/off"
+    }
+  },
+  "learnedPresets": [
+    {
+      "name": "Init",
+      "category": "template",
+      "osc1": {"type": "sawtooth", "gain": 0.5, "subosc": 0},
+      "osc2": {"active": false},
+      "adsr": {"attack": 0, "decay": 0, "sustain": 1, "release": 0},
+      "filter": {"type": "lowpass", "cutoff": 20000, "resonance": 0},
+      "lfo1": {"active": false},
+      "fx": {"delay": false, "reverb": false, "dist": false},
+      "webAudio": {
+        "osc1_type": "sawtooth",
+        "filterFrequency": 20000,
+        "filterQ": 0.1,
+        "attackTime": 0.001,
+        "decayTime": 0.001,
+        "sustainLevel": 1.0,
+        "releaseTime": 0.01
+      }
+    },
+    {
+      "name": "80s Funk Bass",
+      "category": "bass",
+      "osc1": {"type": "sawtooth", "gain": 0.7, "subosc": 0.54, "stereowidth": 0.795},
+      "osc2": {"type": "sawtooth", "gain": 0.74, "subosc": 0.65, "random": true},
+      "adsr": {"attack": 0, "decay": 0.094, "sustain": 0.615, "release": 0.124},
+      "adsr2": {"attack": 0, "decay": 4.49, "sustain": 0.08, "release": 0.843},
+      "filter": {"type": "lowpass", "cutoff": 71.78, "resonance": 0.32, "drive": 0.255},
+      "modulation": {"adsr2_to_filter": 1.0, "modwheel_to_filter": 1.0},
+      "webAudio": {
+        "osc1_type": "sawtooth",
+        "osc2_type": "sawtooth",
+        "osc2_detune": 7,
+        "filterFrequency": 72,
+        "filterQ": 6.4,
+        "attackTime": 0.001,
+        "decayTime": 0.094,
+        "sustainLevel": 0.615,
+        "releaseTime": 0.124,
+        "envFilterAttack": 0.001,
+        "envFilterDecay": 4.49,
+        "envFilterSustain": 0.08,
+        "envFilterAmount": 8000,
+        "notes": "Two detuned saws with heavy sub oscillator. Filter envelope sweeps from 72Hz up. Classic 80s funk tone."
+      }
+    },
+    {
+      "name": "Mojito Default",
+      "category": "mono_synth",
+      "osc1": {"type": "sawtooth", "pulsewidth": 1},
+      "adsr": {"attack_ms": 10, "decay_ms": 500, "sustain_db": -12, "release_ms": 50},
+      "filter": {"cutoff": 16000, "resonance": 0, "envelope": 0},
+      "lfo": {"speed": 5, "sync": true, "targets": {"pitch": 0, "sawsq": 0, "pulse": 0, "filter": 0}},
+      "webAudio": {
+        "osc1_type": "sawtooth",
+        "filterFrequency": 16000,
+        "filterQ": 0.1,
+        "attackTime": 0.01,
+        "decayTime": 0.5,
+        "sustainLevel": 0.25,
+        "releaseTime": 0.05,
+        "notes": "Clean mono saw lead. Minimal processing, good starting point."
+      }
+    }
+  ]
+}
