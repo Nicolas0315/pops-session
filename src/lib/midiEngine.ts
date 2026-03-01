@@ -10,6 +10,8 @@ class MIDIEngine {
   private noteOffH: MIDINoteHandler[] = [];
   private ccH: MIDIControlHandler[] = [];
   private pbH: ((v: number, ch: number) => void)[] = [];
+  private atH: ((note: number, pressure: number, ch: number) => void)[] = []; // poly aftertouch
+  private catH: ((pressure: number, ch: number) => void)[] = []; // channel aftertouch
   private devH: ((d: MIDIDevice[]) => void)[] = [];
 
   async init(): Promise<boolean> {
@@ -33,6 +35,8 @@ class MIDIEngine {
     if (cmd === 0x9 && d2 > 0) this.noteOnH.forEach(h => h({ note: d1, velocity: d2, channel: ch }));
     else if (cmd === 0x9 || cmd === 0x8) this.noteOffH.forEach(h => h({ note: d1, velocity: d2, channel: ch }));
     else if (cmd === 0xb) this.ccH.forEach(h => h({ controller: d1, value: d2, channel: ch }));
+    else if (cmd === 0xa) this.atH.forEach(h => h(d1, d2, ch)); // poly aftertouch
+    else if (cmd === 0xd) this.catH.forEach(h => h(d1, ch)); // channel aftertouch (d1 is pressure)
     else if (cmd === 0xe) this.pbH.forEach(h => h(((d2 << 7 | d1) - 8192) / 8192, ch));
   }
 

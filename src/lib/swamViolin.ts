@@ -1,8 +1,12 @@
 import { midiToFreq } from "./midiEngine";
 
 interface Voice {
-  note: number; freq: number; buf: Float32Array; idx: number; len: number;
-  last: number; bowVel: number; bowForce: number; active: boolean; rel: boolean; relG: number;
+  note: number; freq: number; baseFreq: number;
+  buf: Float32Array; idx: number; len: number;
+  last: number; bowVel: number; bowForce: number;
+  active: boolean; rel: boolean; relG: number;
+  velocity: number; // 0-127 original velocity
+  aftertouch: number; // 0-1 channel aftertouch → bow pressure mod
 }
 interface Res { b0:number;b1:number;b2:number;a1:number;a2:number;x1:number;x2:number;y1:number;y2:number; }
 
@@ -30,6 +34,12 @@ export class SWAMViolin {
   private gn: GainNode; private an: AnalyserNode;
   bowPressure = 0.5; bowSpeed = 0.5; bowPositionRatio = 0.12;
   vibrato = 0; vibratoRate = 5.5; private vPhase = 0; volume = 0.7;
+  pitchBend = 0; // -1 to +1
+  bendRange = 2; // semitones (default ±2, SWAM default)
+  brightness = 0.5; // 0-1, controls body resonance mix
+  aftertouch = 0; // 0-1, global channel aftertouch
+  stringResonance = 0.5; // 0-1, sympathetic string resonance amount
+  bowNoise = 0.02; // 0-1, rosin noise level
 
   constructor(ctx: AudioContext) {
     this.ctx = ctx; this.sr = ctx.sampleRate;
@@ -50,11 +60,36 @@ export class SWAMViolin {
     const freq = midiToFreq(note), len = Math.round(this.sr / freq);
     const buf = new Float32Array(len);
     for (let i = 0; i < len; i++) buf[i] = (Math.random()*2-1)*0.001;
-    this.voices.set(note, { note, freq, buf, idx:0, len, last:0,
-      bowVel:(vel/127)*this.bowSpeed, bowForce:(vel/127)*this.bowPressure,
-      active:true, rel:false, relG:1 });
+    // Velocity curves: higher vel → more bow force + slightly more speed
+    const velNorm = vel / 127;
+    const velCurve = velNorm * velNorm; // exponential velocity curve (more natural)
+    this.voices.set(note, {
+      note, freq, baseFreq: freq, buf, idx:0, len, last:0,
+      bowVel: velNorm * this.bowSpeed,
+      bowForce: velCurve * this.bowPressure,
+      active:true, rel:false, relG:1,
+      velocity: vel, aftertouch: 0,
+    });
   }
+
   noteOff(note: number) { const v = this.voices.get(note); if (v) v.rel = true; }
+
+  // Polyphonic aftertouch (per-note pressure)
+  polyAftertouch(note: number, pressure: number) {
+    const v = this.voices.get(note);
+    if (v) {
+      v.aftertouch = pressure / 127;
+      v.bowForce = (v.velocity / 127) * this.bowPressure * (1 + v.aftertouch * 0.5);
+    }
+  }
+
+  // Channel aftertouch (all notes)
+  channelAftertouch(pressure: number) {
+    this.aftertouch = pressure / 127;
+    for (const v of this.voices.values()) {
+      v.bowForce = (v.velocity / 127) * this.bowPressure * (1 + this.aftertouch * 0.5);
+    }
+  }
   getAnalyser() { return this.an; }
 
   private proc(e: AudioProcessingEvent) {
@@ -65,21 +100,54 @@ export class SWAMViolin {
       if (this.vPhase > 2*Math.PI) this.vPhase -= 2*Math.PI;
       const vm = Math.sin(this.vPhase)*this.vibrato*0.01;
 
+      // Pitch bend: shift all voices
+      const bendSemitones = this.pitchBend * this.bendRange;
+      const bendRatio = Math.pow(2, bendSemitones / 12);
+
       for (const v of this.voices.values()) {
         if (!v.active && !v.rel) continue;
         if (v.rel) { v.relG *= 0.9995; v.bowForce *= 0.999; if (v.relG < 0.001) { v.active=false; v.rel=false; continue; } }
+
+        // Apply pitch bend by adjusting effective read position
+        const bentFreq = v.baseFreq * bendRatio * (1 + vm);
+        const effectiveLen = this.sr / bentFreq;
+
         const d = v.buf[v.idx];
-        const bv = v.bowVel*(1+vm)*(v.active?1:0);
-        const fr = friction(bv-d, v.bowForce);
-        const damp = 0.996-v.freq*0.000002;
-        const filt = d*damp+v.last*(1-damp);
+
+        // Bow noise (rosin friction noise)
+        const noise = (Math.random() * 2 - 1) * this.bowNoise * v.bowForce;
+
+        const bv = v.bowVel * (v.active ? 1 : 0);
+        const fr = friction(bv - d, v.bowForce) + noise;
+
+        // Damping varies with bow position (closer to bridge = brighter)
+        const posDamp = 1 - this.bowPositionRatio * 2; // 0.05→0.9, 0.25→0.5
+        const damp = (0.994 + posDamp * 0.004) - v.baseFreq * 0.000002;
+        const filt = d * damp + v.last * (1 - damp);
         v.last = filt;
-        v.buf[v.idx] = filt+fr*0.15;
-        v.idx = (v.idx+1)%v.len;
-        s += filt*v.relG;
+        v.buf[v.idx] = filt + fr * 0.15;
+
+        // Fractional delay for pitch bend (linear interpolation)
+        const frac = effectiveLen - Math.floor(effectiveLen);
+        v.idx = (v.idx + 1) % v.len;
+        const next = v.buf[v.idx];
+        const interp = filt * (1 - frac) + next * frac;
+
+        s += interp * v.relG;
       }
-      let b = 0; for (const f of this.bodyF) b += runR(f, s);
-      out[i] = Math.tanh(s*0.3+b*0.7)*this.volume;
+
+      // Body resonance with brightness control
+      let b = 0;
+      for (let fi = 0; fi < this.bodyF.length; fi++) {
+        // Higher-index filters = higher freq = affected by brightness
+        const bMix = fi < 4 ? 1.0 : this.brightness * 2;
+        b += runR(this.bodyF[fi], s) * bMix;
+      }
+
+      // Sympathetic string resonance (subtle)
+      const sympRes = s * this.stringResonance * 0.05;
+
+      out[i] = Math.tanh((s * 0.3 + b * 0.7 + sympRes) * (0.5 + this.volume * 0.5)) * this.volume;
     }
     for (const [n, v] of this.voices) if (!v.active && !v.rel) this.voices.delete(n);
   }
