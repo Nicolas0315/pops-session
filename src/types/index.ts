@@ -1,122 +1,132 @@
 // ============================================================
-// Pops Session - Type Definitions
+// Pops Session — Type Definitions v2
+// Reference: Studio One 7, Serum, Massive, Sylenth1
 // ============================================================
 
-export type OscillatorType = 'sine' | 'square' | 'sawtooth' | 'triangle';
-export type FilterType = 'lowpass' | 'highpass' | 'bandpass';
-export type LFOTarget = 'pitch' | 'filter' | 'amp';
-export type TrackType = 'audio' | 'midi' | 'sample';
-export type SampleCategory = 'drums' | 'bass' | 'synths' | 'fx' | 'vocals';
-export type Tab = 'daw' | 'sampler' | 'synth';
+export type OscillatorType  = 'sine' | 'square' | 'sawtooth' | 'triangle';
+export type FilterType      = 'lowpass' | 'highpass' | 'bandpass';
+export type LFOTarget       = 'pitch' | 'filter' | 'amp';
+export type TrackType       = 'audio' | 'midi' | 'sample';
+export type SampleCategory  = 'drums' | 'bass' | 'synths' | 'fx' | 'vocals';
+export type Tab             = 'daw' | 'sampler' | 'synth' | 'violin';
 
-// ---- Synth ----
+// ─── Synth ────────────────────────────────────────────────
+
 export interface ADSREnvelope {
-  attack: number;   // 0-2 seconds
-  decay: number;    // 0-2 seconds
-  sustain: number;  // 0-1
-  release: number;  // 0-5 seconds
+  attack:  number;   // 0.001–4 s
+  decay:   number;   // 0.01–4 s
+  sustain: number;   // 0–1
+  release: number;   // 0.01–8 s
 }
 
 export interface FilterParams {
-  type: FilterType;
-  cutoff: number;      // 20-20000 Hz
-  resonance: number;   // 0-30
+  type:      FilterType;
+  cutoff:    number;   // 20–20000 Hz
+  resonance: number;   // 0–30
 }
 
 export interface LFOParams {
-  rate: number;    // 0.1-20 Hz
-  depth: number;   // 0-1
+  rate:   number;     // 0.1–20 Hz
+  depth:  number;     // 0–1
   target: LFOTarget;
 }
 
 export interface EffectsParams {
-  reverb: number;     // 0-1 wet
-  delay: number;      // 0-1 wet
-  delayTime: number;  // seconds
-  distortion: number; // 0-1
+  reverb:        number;   // 0–1 wet
+  delay:         number;   // 0–1 wet
+  delayTime:     number;   // seconds
+  delayFeedback: number;   // 0–0.95
+  distortion:    number;   // 0–1
 }
 
 export interface SynthPreset {
-  id: string;
-  name: string;
+  id:             string;
+  name:           string;
+  category?:      string;   // "lead" | "bass" | "pad" | "keys" | "fx"
   oscillatorType: OscillatorType;
-  envelope: ADSREnvelope;
-  filter: FilterParams;
-  lfo: LFOParams;
-  effects: EffectsParams;
-  octave: number;
-  detune: number;
+  envelope:       ADSREnvelope;
+  filter:         FilterParams;
+  lfo:            LFOParams;
+  effects:        EffectsParams;
+  octave:         number;    // 1–7
+  detune:         number;    // cents, -100–100
+  unisonVoices?:  number;    // 1 | 2 | 3 | 5 | 7
+  unisonSpread?:  number;    // cents total spread across voices
 }
 
-// ---- Sample Browser ----
+// ─── Sample Browser ───────────────────────────────────────
+
 export interface Sample {
-  id: string;
-  name: string;
-  category: SampleCategory;
-  duration: number;
-  color: string;
-  isBuiltIn: boolean;
+  id:          string;
+  name:        string;
+  category:    SampleCategory;
+  subcategory?: string;   // e.g. "kick", "snare", "hihat"
+  duration:    number;
+  color:       string;
+  isBuiltIn:   boolean;
   audioBuffer?: AudioBuffer;
-  url?: string;
+  url?:         string;
 }
 
-// ---- DAW / Timeline ----
+// ─── DAW / Timeline ───────────────────────────────────────
+
 export interface Clip {
-  id: string;
-  trackId: string;
-  startBeat: number;
+  id:          string;
+  trackId:     string;
+  startBeat:   number;
   lengthBeats: number;
-  sampleId?: string;
-  midiNotes?: MidiNote[];
-  color: string;
-  name: string;
+  sampleId?:   string;
+  midiNotes?:  MidiNote[];
+  color:       string;
+  name:        string;
   audioBuffer?: AudioBuffer;
 }
 
 export interface MidiNote {
-  id: string;
-  pitch: number;      // MIDI note number 0-127
-  startBeat: number;
+  id:          string;
+  pitch:       number;   // 0–127
+  startBeat:   number;
   lengthBeats: number;
-  velocity: number;   // 0-127
+  velocity:    number;   // 0–127
 }
 
 export interface Track {
-  id: string;
-  name: string;
-  type: TrackType;
-  color: string;
-  volume: number;  // 0-1
-  pan: number;     // -1 to 1
-  muted: boolean;
-  soloed: boolean;
-  clips: Clip[];
+  id:      string;
+  name:    string;
+  type:    TrackType;
+  color:   string;
+  volume:  number;   // 0–1
+  pan:     number;   // -1–1
+  muted:   boolean;
+  soloed:  boolean;
+  clips:   Clip[];
 }
 
 export interface TransportState {
-  bpm: number;
-  timeSignatureNum: number;
-  timeSignatureDen: number;
-  isPlaying: boolean;
-  isRecording: boolean;
-  isLooping: boolean;
-  currentBeat: number;
-  loopStart: number;
-  loopEnd: number;
-  metronomeEnabled: boolean;
+  bpm:               number;
+  timeSignatureNum:  number;
+  timeSignatureDen:  number;
+  isPlaying:         boolean;
+  isRecording:       boolean;
+  isLooping:         boolean;
+  currentBeat:       number;
+  loopStart:         number;
+  loopEnd:           number;
+  metronomeEnabled:  boolean;
 }
 
-// ---- App State ----
+// ─── App State ────────────────────────────────────────────
+
 export interface AppState {
-  activeTab: Tab;
-  tracks: Track[];
-  transport: TransportState;
-  samples: Sample[];
+  activeTab:       Tab;
+  tracks:          Track[];
+  transport:       TransportState;
+  samples:         Sample[];
   selectedTrackId: string | null;
-  selectedClipId: string | null;
+  selectedClipId:  string | null;
   pianoRollClipId: string | null;
-  synthPreset: SynthPreset;
-  savedPresets: SynthPreset[];
-  pixelsPerBeat: number;
-  scrollLeft: number;
+  synthPreset:     SynthPreset;
+  savedPresets:    SynthPreset[];
+  pixelsPerBeat:   number;
+  scrollLeft:      number;
 }

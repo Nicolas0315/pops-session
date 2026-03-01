@@ -4,7 +4,8 @@ import { useAppStore } from '@/store/useAppStore';
 import type { Sample, SampleCategory } from '@/types';
 import {
   getAudioContext, playBuffer, drawWaveform,
-  generateKick, generateSnare, generateHihat, generateClap,
+  generateKick808 as generateKick, generateSnareCrack as generateSnare,
+  generateHihatClosed as generateHihat, generateClap,
   generateBassPluck, generatePad, generateSynthLead,
   generateFxRiser, generateVocalChop
 } from '@/lib/audioEngine';
@@ -25,7 +26,7 @@ const BUILT_IN_DEFS: {
   { name: 'Kick',          category: 'drums',  color: '#ef4444', gen: c => generateKick(c) },
   { name: 'Snare',         category: 'drums',  color: '#f97316', gen: c => generateSnare(c) },
   { name: 'HiHat Closed',  category: 'drums',  color: '#eab308', gen: c => generateHihat(c) },
-  { name: 'HiHat Open',    category: 'drums',  color: '#84cc16', gen: c => generateHihat(c, 0.15, true) },
+  { name: 'HiHat Open',    category: 'drums',  color: '#84cc16', gen: c => generateHihat(c) },
   { name: 'Clap',          category: 'drums',  color: '#f472b6', gen: c => generateClap(c) },
   { name: 'Bass Pluck',    category: 'bass',   color: '#22d3ee', gen: c => generateBassPluck(c) },
   { name: 'Pad Chord',     category: 'synths', color: '#818cf8', gen: c => generatePad(c) },

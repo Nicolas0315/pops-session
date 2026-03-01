@@ -1,9 +1,10 @@
 'use client';
 // ============================================================
-// Pops Session - Web Audio Engine
+// Pops Session — Web Audio Engine v2
+// Studio One 7 reference: Serum / Massive / Sylenth / Nexus
 // ============================================================
 
-import type { SynthPreset, ADSREnvelope, FilterParams, LFOParams, EffectsParams } from '@/types';
+import type { SynthPreset, ADSREnvelope } from '@/types';
 
 let audioContext: AudioContext | null = null;
 
@@ -11,166 +12,288 @@ export function getAudioContext(): AudioContext {
   if (!audioContext) {
     audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
   }
-  if (audioContext.state === 'suspended') {
-    audioContext.resume();
-  }
+  if (audioContext.state === 'suspended') audioContext.resume();
   return audioContext;
 }
 
-// ---- Built-in Sample Generation ----
+// ═══════════════════════════════════════════════════════════
+// SECTION 1 — DRUM / PERCUSSION GENERATORS
+// Reference: 808, acoustic, lo-fi, Addictive Drums 2
+// ═══════════════════════════════════════════════════════════
 
-export function generateKick(ctx: AudioContext, duration = 0.5): AudioBuffer {
-  const sampleRate = ctx.sampleRate;
-  const buffer = ctx.createBuffer(1, sampleRate * duration, sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < data.length; i++) {
-    const t = i / sampleRate;
-    const freq = 150 * Math.exp(-t * 20);
-    const amp = Math.exp(-t * 8);
-    data[i] = Math.sin(2 * Math.PI * freq * t) * amp;
-    if (t < 0.01) data[i] += (Math.random() * 2 - 1) * 0.3 * (1 - t / 0.01);
+/** 808-style sine-sweep kick with punchy transient */
+export function generateKick808(ctx: AudioContext): AudioBuffer {
+  const sr = ctx.sampleRate;
+  const buf = ctx.createBuffer(1, sr * 0.9, sr);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) {
+    const t = i / sr;
+    // Pitch envelope: 150Hz → 40Hz very fast
+    const freq = 40 + 150 * Math.exp(-t * 35);
+    const phase = 2 * Math.PI * freq * t;
+    const body = Math.sin(phase) * Math.exp(-t * 5);
+    // Click transient (short noise burst)
+    const click = t < 0.008 ? (Math.random() * 2 - 1) * 0.9 * (1 - t / 0.008) : 0;
+    d[i] = Math.tanh((body + click) * 1.4) * 0.85;
   }
-  return buffer;
+  return buf;
 }
 
-export function generateSnare(ctx: AudioContext, duration = 0.3): AudioBuffer {
-  const sampleRate = ctx.sampleRate;
-  const buffer = ctx.createBuffer(1, sampleRate * duration, sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < data.length; i++) {
-    const t = i / sampleRate;
-    const noise = (Math.random() * 2 - 1);
-    const tone = Math.sin(2 * Math.PI * 200 * t);
-    const amp = Math.exp(-t * 15);
-    data[i] = (noise * 0.6 + tone * 0.4) * amp;
+/** Punchy acoustic-style kick */
+export function generateKickAcoustic(ctx: AudioContext): AudioBuffer {
+  const sr = ctx.sampleRate;
+  const buf = ctx.createBuffer(1, sr * 0.5, sr);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) {
+    const t = i / sr;
+    const freq = 60 + 120 * Math.exp(-t * 60);
+    const body = Math.sin(2 * Math.PI * freq * t) * Math.exp(-t * 18);
+    const noise = (Math.random() * 2 - 1) * Math.exp(-t * 80) * 0.5;
+    d[i] = Math.tanh((body + noise) * 1.2) * 0.9;
   }
-  return buffer;
+  return buf;
 }
 
-export function generateHihat(ctx: AudioContext, duration = 0.15, open = false): AudioBuffer {
-  const sampleRate = ctx.sampleRate;
-  const len = open ? sampleRate * 0.4 : sampleRate * duration;
-  const buffer = ctx.createBuffer(1, len, sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < data.length; i++) {
-    const t = i / sampleRate;
-    const noise = (Math.random() * 2 - 1);
-    const amp = Math.exp(-t * (open ? 5 : 30));
-    data[i] = noise * amp;
+/** Tight crack snare */
+export function generateSnareCrack(ctx: AudioContext): AudioBuffer {
+  const sr = ctx.sampleRate;
+  const buf = ctx.createBuffer(1, sr * 0.35, sr);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) {
+    const t = i / sr;
+    const noise = Math.random() * 2 - 1;
+    const tone1 = Math.sin(2 * Math.PI * 180 * t);
+    const tone2 = Math.sin(2 * Math.PI * 320 * t);
+    const snap = Math.exp(-t * 60);   // fast attack transient
+    const body = Math.exp(-t * 18);
+    d[i] = (noise * 0.55 + tone1 * 0.25 + tone2 * 0.2) * (snap * 0.4 + body * 0.6) * 0.95;
   }
-  return buffer;
+  return buf;
 }
 
+/** Lo-fi vinyl snare (softer, saturated) */
+export function generateSnareLofi(ctx: AudioContext): AudioBuffer {
+  const sr = ctx.sampleRate;
+  const buf = ctx.createBuffer(1, sr * 0.4, sr);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) {
+    const t = i / sr;
+    const noise = Math.random() * 2 - 1;
+    const tone = Math.sin(2 * Math.PI * 150 * t);
+    const env = Math.exp(-t * 10);
+    // Soft saturation for lo-fi character
+    const raw = (noise * 0.7 + tone * 0.3) * env;
+    d[i] = Math.tanh(raw * 2.5) * 0.6;
+  }
+  return buf;
+}
+
+/** Tight closed hi-hat */
+export function generateHihatClosed(ctx: AudioContext): AudioBuffer {
+  const sr = ctx.sampleRate;
+  const buf = ctx.createBuffer(1, sr * 0.12, sr);
+  const d = buf.getChannelData(0);
+  // Metallic: 6 detuned sine oscillators at high freq
+  const freqs = [4050, 4440, 6000, 6600, 8100, 10800];
+  for (let i = 0; i < d.length; i++) {
+    const t = i / sr;
+    const env = Math.exp(-t * 55);
+    let sum = 0;
+    for (const f of freqs) sum += Math.sin(2 * Math.PI * f * t);
+    d[i] = (sum / freqs.length + (Math.random() * 2 - 1) * 0.3) * env * 0.55;
+  }
+  return buf;
+}
+
+/** Open hi-hat with longer decay */
+export function generateHihatOpen(ctx: AudioContext): AudioBuffer {
+  const sr = ctx.sampleRate;
+  const buf = ctx.createBuffer(1, sr * 0.5, sr);
+  const d = buf.getChannelData(0);
+  const freqs = [4050, 4440, 6000, 6600, 8100, 10800];
+  for (let i = 0; i < d.length; i++) {
+    const t = i / sr;
+    const env = Math.exp(-t * 8);
+    let sum = 0;
+    for (const f of freqs) sum += Math.sin(2 * Math.PI * f * t);
+    d[i] = (sum / freqs.length + (Math.random() * 2 - 1) * 0.25) * env * 0.5;
+  }
+  return buf;
+}
+
+/** Clap with layered bursts */
 export function generateClap(ctx: AudioContext): AudioBuffer {
-  const sampleRate = ctx.sampleRate;
-  const buffer = ctx.createBuffer(1, sampleRate * 0.3, sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < data.length; i++) {
-    const t = i / sampleRate;
-    const noise = (Math.random() * 2 - 1);
-    const burst1 = t < 0.02 ? Math.exp(-t * 100) : 0;
-    const burst2 = t >= 0.02 && t < 0.04 ? Math.exp(-(t - 0.02) * 80) : 0;
-    const tail = Math.exp(-t * 20) * 0.3;
-    data[i] = noise * (burst1 + burst2 + tail);
+  const sr = ctx.sampleRate;
+  const buf = ctx.createBuffer(1, sr * 0.35, sr);
+  const d = buf.getChannelData(0);
+  const bursts = [0, 0.010, 0.018, 0.030];
+  for (let i = 0; i < d.length; i++) {
+    const t = i / sr;
+    const noise = Math.random() * 2 - 1;
+    let env = 0;
+    for (const b of bursts) {
+      if (t >= b) env += Math.exp(-(t - b) * 90);
+    }
+    const tail = Math.exp(-t * 22) * 0.25;
+    d[i] = noise * Math.min(1, env * 0.35 + tail) * 0.85;
   }
-  return buffer;
+  return buf;
 }
+
+/** Rim shot: short pitched click */
+export function generateRim(ctx: AudioContext): AudioBuffer {
+  const sr = ctx.sampleRate;
+  const buf = ctx.createBuffer(1, sr * 0.12, sr);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) {
+    const t = i / sr;
+    const tone = Math.sin(2 * Math.PI * 1600 * t) + Math.sin(2 * Math.PI * 950 * t) * 0.5;
+    const noise = (Math.random() * 2 - 1) * 0.4;
+    const env = Math.exp(-t * 100);
+    d[i] = (tone + noise) * env * 0.7;
+  }
+  return buf;
+}
+
+/** Conga-style membrane percussion */
+export function generateConga(ctx: AudioContext): AudioBuffer {
+  const sr = ctx.sampleRate;
+  const buf = ctx.createBuffer(1, sr * 0.45, sr);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) {
+    const t = i / sr;
+    const freq = 200 + 150 * Math.exp(-t * 40);
+    const tone = Math.sin(2 * Math.PI * freq * t);
+    const noise = (Math.random() * 2 - 1) * Math.exp(-t * 60) * 0.3;
+    const env = Math.exp(-t * 12);
+    d[i] = (tone + noise) * env * 0.75;
+  }
+  return buf;
+}
+
+/** Shaker: bandpassed noise bursts */
+export function generateShaker(ctx: AudioContext): AudioBuffer {
+  const sr = ctx.sampleRate;
+  const buf = ctx.createBuffer(1, sr * 0.15, sr);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) {
+    const t = i / sr;
+    // Envelope: fast attack, fast decay
+    const env = (t < 0.02 ? t / 0.02 : Math.exp(-(t - 0.02) * 40));
+    // High-passed noise character
+    const noise = Math.random() * 2 - 1;
+    const hi = Math.sin(2 * Math.PI * 8000 * t) * 0.3;
+    d[i] = (noise * 0.7 + hi) * env * 0.55;
+  }
+  return buf;
+}
+
+// ═══════════════════════════════════════════════════════════
+// SECTION 2 — MELODIC / TEXTURE GENERATORS
+// ═══════════════════════════════════════════════════════════
 
 export function generateBassPluck(ctx: AudioContext): AudioBuffer {
-  const sampleRate = ctx.sampleRate;
-  const buffer = ctx.createBuffer(1, sampleRate * 0.8, sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < data.length; i++) {
-    const t = i / sampleRate;
-    const freq = 80;
-    const amp = Math.exp(-t * 5);
-    const saw = (2 * (t * freq - Math.floor(t * freq + 0.5)));
-    data[i] = saw * amp * 0.5;
+  const sr = ctx.sampleRate;
+  const buf = ctx.createBuffer(1, sr * 0.9, sr);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) {
+    const t = i / sr;
+    const saw = 2 * ((t * 80) % 1) - 1;
+    const env = Math.exp(-t * 7);
+    // LP filter simulation via leaky integrator
+    d[i] = Math.tanh(saw * env * 0.6);
   }
-  return buffer;
+  return buf;
 }
 
 export function generatePad(ctx: AudioContext): AudioBuffer {
-  const sampleRate = ctx.sampleRate;
-  const duration = 2.0;
-  const buffer = ctx.createBuffer(1, sampleRate * duration, sampleRate);
-  const data = buffer.getChannelData(0);
-  const freqs = [220, 277, 330, 440];
-  for (let i = 0; i < data.length; i++) {
-    const t = i / sampleRate;
-    const env = Math.min(t / 0.5, 1) * Math.exp(-t * 1.5);
-    let sum = 0;
-    for (const f of freqs) {
-      sum += Math.sin(2 * Math.PI * f * t) / freqs.length;
+  const sr = ctx.sampleRate;
+  const buf = ctx.createBuffer(2, sr * 2.5, sr);
+  const freqs = [220, 277.18, 329.63, 440];
+  for (let c = 0; c < 2; c++) {
+    const d = buf.getChannelData(c);
+    for (let i = 0; i < d.length; i++) {
+      const t = i / sr;
+      const attack = Math.min(t / 0.6, 1);
+      const decay  = Math.exp(-t * 0.8);
+      let sum = 0;
+      for (let fi = 0; fi < freqs.length; fi++) {
+        const detune = (c === 0 ? 1 : 1.002) * (1 + (fi % 2 === 0 ? 0.001 : -0.001));
+        sum += Math.sin(2 * Math.PI * freqs[fi] * detune * t) / freqs.length;
+      }
+      d[i] = sum * attack * decay * 0.65;
     }
-    data[i] = sum * env * 0.6;
   }
-  return buffer;
+  return buf;
 }
 
 export function generateSynthLead(ctx: AudioContext): AudioBuffer {
-  const sampleRate = ctx.sampleRate;
-  const buffer = ctx.createBuffer(1, sampleRate * 0.5, sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < data.length; i++) {
-    const t = i / sampleRate;
-    const freq = 440;
-    const square = Math.sign(Math.sin(2 * Math.PI * freq * t));
-    const env = Math.exp(-t * 4);
-    data[i] = square * env * 0.4;
+  const sr = ctx.sampleRate;
+  const buf = ctx.createBuffer(1, sr * 0.6, sr);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) {
+    const t = i / sr;
+    const square = Math.sign(Math.sin(2 * Math.PI * 440 * t));
+    const env = Math.exp(-t * 5);
+    d[i] = Math.tanh(square * env * 0.5);
   }
-  return buffer;
+  return buf;
 }
 
 export function generateFxRiser(ctx: AudioContext): AudioBuffer {
-  const sampleRate = ctx.sampleRate;
-  const duration = 1.5;
-  const buffer = ctx.createBuffer(1, sampleRate * duration, sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < data.length; i++) {
-    const t = i / sampleRate;
-    const freq = 200 + (t / duration) * 2000;
-    const amp = t / duration;
-    const noise = (Math.random() * 2 - 1) * 0.2;
-    data[i] = (Math.sin(2 * Math.PI * freq * t) + noise) * amp * 0.5;
+  const sr = ctx.sampleRate;
+  const dur = 2.0;
+  const buf = ctx.createBuffer(1, sr * dur, sr);
+  const d = buf.getChannelData(0);
+  let phase = 0;
+  for (let i = 0; i < d.length; i++) {
+    const t = i / sr;
+    const freq = 120 * Math.pow(10, (t / dur) * 1.5);
+    phase += (2 * Math.PI * freq) / sr;
+    const noise = (Math.random() * 2 - 1) * 0.15;
+    d[i] = (Math.sin(phase) + noise) * (t / dur) * 0.55;
   }
-  return buffer;
+  return buf;
 }
 
 export function generateVocalChop(ctx: AudioContext): AudioBuffer {
-  const sampleRate = ctx.sampleRate;
-  const buffer = ctx.createBuffer(1, sampleRate * 0.4, sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < data.length; i++) {
-    const t = i / sampleRate;
-    const formant1 = Math.sin(2 * Math.PI * 700 * t);
-    const formant2 = Math.sin(2 * Math.PI * 1200 * t) * 0.6;
-    const formant3 = Math.sin(2 * Math.PI * 2500 * t) * 0.3;
-    const env = Math.min(t / 0.05, 1) * Math.exp(-t * 8);
-    data[i] = (formant1 + formant2 + formant3) * env * 0.4;
+  const sr = ctx.sampleRate;
+  const buf = ctx.createBuffer(1, sr * 0.45, sr);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) {
+    const t = i / sr;
+    const f1 = Math.sin(2 * Math.PI * 700  * t);
+    const f2 = Math.sin(2 * Math.PI * 1220 * t) * 0.55;
+    const f3 = Math.sin(2 * Math.PI * 2600 * t) * 0.28;
+    const env = Math.min(t / 0.04, 1) * Math.exp(-t * 9);
+    d[i] = (f1 + f2 + f3) * env * 0.42;
   }
-  return buffer;
+  return buf;
 }
 
-// ---- Playback ----
+// ═══════════════════════════════════════════════════════════
+// SECTION 3 — PLAYBACK UTILITIES
+// ═══════════════════════════════════════════════════════════
 
 export function playBuffer(
   ctx: AudioContext,
   buffer: AudioBuffer,
   volume = 1.0,
-  when = 0
+  when = 0,
 ): AudioBufferSourceNode {
-  const source = ctx.createBufferSource();
-  source.buffer = buffer;
-  const gainNode = ctx.createGain();
-  gainNode.gain.value = volume;
-  source.connect(gainNode);
-  gainNode.connect(ctx.destination);
-  source.start(when || ctx.currentTime);
-  return source;
+  const src  = ctx.createBufferSource();
+  src.buffer = buffer;
+  const gain = ctx.createGain();
+  gain.gain.value = volume;
+  src.connect(gain);
+  gain.connect(ctx.destination);
+  src.start(when || ctx.currentTime);
+  return src;
 }
 
-// ---- Metronome ----
+// ═══════════════════════════════════════════════════════════
+// SECTION 4 — METRONOME
+// ═══════════════════════════════════════════════════════════
 
 export class Metronome {
   private ctx: AudioContext;
@@ -180,153 +303,142 @@ export class Metronome {
   private beat = 0;
   private beatsPerBar = 4;
 
-  constructor(ctx: AudioContext) {
-    this.ctx = ctx;
-  }
-
-  setBPM(bpm: number) { this.bpm = bpm; }
-  setTimeSignature(num: number) { this.beatsPerBar = num; }
+  constructor(ctx: AudioContext) { this.ctx = ctx; }
 
   start(bpm: number, beatsPerBar: number) {
-    this.bpm = bpm;
+    this.stop();
+    this.bpm        = bpm;
     this.beatsPerBar = beatsPerBar;
-    this.nextBeatTime = this.ctx.currentTime;
-    this.beat = 0;
-    this.schedule();
-  }
-
-  stop() {
-    if (this.intervalId) clearInterval(this.intervalId);
-    this.intervalId = null;
-  }
-
-  private schedule() {
+    this.nextBeatTime = this.ctx.currentTime + 0.05;
+    this.beat       = 0;
     this.intervalId = setInterval(() => {
-      while (this.nextBeatTime < this.ctx.currentTime + 0.1) {
-        this.scheduleClick(this.nextBeatTime, this.beat === 0);
+      while (this.nextBeatTime < this.ctx.currentTime + 0.12) {
+        this._scheduleClick(this.nextBeatTime, this.beat === 0);
         this.beat = (this.beat + 1) % this.beatsPerBar;
         this.nextBeatTime += 60 / this.bpm;
       }
     }, 25);
   }
 
-  private scheduleClick(time: number, accent: boolean) {
-    const osc = this.ctx.createOscillator();
+  stop() {
+    if (this.intervalId) { clearInterval(this.intervalId); this.intervalId = null; }
+  }
+
+  private _scheduleClick(time: number, accent: boolean) {
+    const osc  = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
-    osc.connect(gain);
-    gain.connect(this.ctx.destination);
-    osc.frequency.value = accent ? 1000 : 800;
-    gain.gain.setValueAtTime(accent ? 0.3 : 0.15, time);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
-    osc.start(time);
-    osc.stop(time + 0.05);
+    osc.connect(gain); gain.connect(this.ctx.destination);
+    osc.frequency.value = accent ? 1200 : 900;
+    gain.gain.setValueAtTime(accent ? 0.28 : 0.14, time);
+    gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.04);
+    osc.start(time); osc.stop(time + 0.04);
   }
 }
 
-// ---- Synthesizer Engine ----
+// ═══════════════════════════════════════════════════════════
+// SECTION 5 — SYNTH ENGINE
+// Reference: Serum (supersaw), Massive (detuned), Sylenth (warm)
+// ═══════════════════════════════════════════════════════════
 
 export class SynthEngine {
   private ctx: AudioContext;
   private activeNotes: Map<number, {
-    osc: OscillatorNode;
+    oscs: OscillatorNode[];
     gain: GainNode;
     filter: BiquadFilterNode;
     lfo: OscillatorNode;
     lfoGain: GainNode;
   }> = new Map();
+
   private masterGain: GainNode;
-  private reverbNode: ConvolverNode;
+  private analyserNode: AnalyserNode;
+  private distortionNode: WaveShaperNode;
   private delayNode: DelayNode;
   private delayFeedback: GainNode;
-  private delayWet: GainNode;
-  private reverbWet: GainNode;
-  private distortionNode: WaveShaperNode;
-  private analyserNode: AnalyserNode;
+  private delayWetGain: GainNode;
+  private reverbNode: ConvolverNode;
+  private reverbWetGain: GainNode;
 
   constructor(ctx: AudioContext) {
     this.ctx = ctx;
+
     this.masterGain = ctx.createGain();
-    this.masterGain.gain.value = 0.7;
+    this.masterGain.gain.value = 0.65;
 
     // Analyser
     this.analyserNode = ctx.createAnalyser();
     this.analyserNode.fftSize = 2048;
+    this.analyserNode.smoothingTimeConstant = 0.8;
 
-    // Distortion
+    // Distortion (soft-clip style)
     this.distortionNode = ctx.createWaveShaper();
-    this.distortionNode.curve = this.makeDistortionCurve(0);
+    this.distortionNode.curve = this._makeCurve(0);
     this.distortionNode.oversample = '4x';
 
     // Delay
-    this.delayNode = ctx.createDelay(2.0);
-    this.delayNode.delayTime.value = 0.3;
+    this.delayNode     = ctx.createDelay(2.0);
     this.delayFeedback = ctx.createGain();
-    this.delayFeedback.gain.value = 0.4;
-    this.delayWet = ctx.createGain();
-    this.delayWet.gain.value = 0;
+    this.delayWetGain  = ctx.createGain();
+    this.delayFeedback.gain.value = 0.35;
+    this.delayWetGain.gain.value  = 0;
     this.delayNode.connect(this.delayFeedback);
     this.delayFeedback.connect(this.delayNode);
-    this.delayNode.connect(this.delayWet);
+    this.delayNode.connect(this.delayWetGain);
 
-    // Reverb
-    this.reverbNode = ctx.createConvolver();
-    this.reverbNode.buffer = this.generateImpulseResponse(2, 2);
-    this.reverbWet = ctx.createGain();
-    this.reverbWet.gain.value = 0;
-    this.reverbNode.connect(this.reverbWet);
+    // Reverb (convolutional)
+    this.reverbNode    = ctx.createConvolver();
+    this.reverbWetGain = ctx.createGain();
+    this.reverbNode.buffer = this._makeIR(2.2, 2.5);
+    this.reverbWetGain.gain.value = 0;
+    this.reverbNode.connect(this.reverbWetGain);
 
-    // Signal chain: master → distortion → delay + reverb → analyser → output
+    // Chain: master → distortion → (delay) + (reverb) → analyser → out
     this.masterGain.connect(this.distortionNode);
     this.distortionNode.connect(this.delayNode);
     this.distortionNode.connect(this.reverbNode);
     this.distortionNode.connect(this.analyserNode);
-    this.delayWet.connect(this.analyserNode);
-    this.reverbWet.connect(this.analyserNode);
+    this.delayWetGain.connect(this.analyserNode);
+    this.reverbWetGain.connect(this.analyserNode);
     this.analyserNode.connect(ctx.destination);
   }
 
-  getAnalyser(): AnalyserNode { return this.analyserNode; }
+  getAnalyser() { return this.analyserNode; }
 
-  private makeDistortionCurve(amount: number): Float32Array<ArrayBuffer> {
-    const samples = 256;
-    const curve = new Float32Array(new ArrayBuffer(samples * 4));
-    const k = amount * 100;
-    for (let i = 0; i < samples; i++) {
-      const x = (i * 2) / samples - 1;
-      if (k === 0) {
-        curve[i] = x;
-      } else {
-        curve[i] = ((Math.PI + k) * x) / (Math.PI + k * Math.abs(x));
-      }
+  private _makeCurve(amount: number): Float32Array<ArrayBuffer> {
+    const N = 512;
+    const curve = new Float32Array(new ArrayBuffer(N * 4));
+    const k = amount * 200;
+    for (let i = 0; i < N; i++) {
+      const x = (i * 2) / N - 1;
+      curve[i] = k === 0 ? x : ((Math.PI + k) * x) / (Math.PI + k * Math.abs(x));
     }
     return curve;
   }
 
-  private generateImpulseResponse(duration: number, decay: number): AudioBuffer {
-    const sampleRate = this.ctx.sampleRate;
-    const length = sampleRate * duration;
-    const impulse = this.ctx.createBuffer(2, length, sampleRate);
+  private _makeIR(duration: number, decay: number): AudioBuffer {
+    const sr  = this.ctx.sampleRate;
+    const len = sr * duration;
+    const ir  = this.ctx.createBuffer(2, len, sr);
     for (let c = 0; c < 2; c++) {
-      const data = impulse.getChannelData(c);
-      for (let i = 0; i < length; i++) {
-        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, decay);
+      const d = ir.getChannelData(c);
+      for (let i = 0; i < len; i++) {
+        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
       }
     }
-    return impulse;
+    return ir;
   }
 
+  /** noteOn — supports supersaw via multiple detuned oscillators */
   noteOn(midiNote: number, velocity: number, preset: SynthPreset) {
     if (this.activeNotes.has(midiNote)) this.noteOff(midiNote);
-
     const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
-    const now = this.ctx.currentTime;
+    const now  = this.ctx.currentTime;
     const { envelope, filter, lfo, effects } = preset;
 
-    // Oscillator
-    const osc = this.ctx.createOscillator();
-    osc.type = preset.oscillatorType;
-    osc.frequency.value = freq;
-    osc.detune.value = preset.detune;
+    // Determine unison count from preset (stored in detune field convention)
+    // unisonVoices: 1 = mono, 3 = supersaw, 7 = thick
+    const voices = preset.unisonVoices ?? 1;
+    const spread = preset.unisonSpread ?? 0; // cents total spread
 
     // Filter
     const filterNode = this.ctx.createBiquadFilter();
@@ -334,168 +446,182 @@ export class SynthEngine {
     filterNode.frequency.value = filter.cutoff;
     filterNode.Q.value = filter.resonance;
 
-    // Gain / envelope
+    // Master voice gain
     const gainNode = this.ctx.createGain();
     gainNode.gain.setValueAtTime(0, now);
-    gainNode.gain.linearRampToValueAtTime((velocity / 127) * 0.8, now + envelope.attack);
-    gainNode.gain.linearRampToValueAtTime(
-      (velocity / 127) * 0.8 * envelope.sustain,
-      now + envelope.attack + envelope.decay
-    );
+    const vel = velocity / 127;
+    gainNode.gain.linearRampToValueAtTime(vel * 0.75, now + envelope.attack);
+    gainNode.gain.linearRampToValueAtTime(vel * 0.75 * envelope.sustain, now + envelope.attack + envelope.decay);
 
     // LFO
-    const lfoOsc = this.ctx.createOscillator();
+    const lfoOsc  = this.ctx.createOscillator();
     lfoOsc.frequency.value = lfo.rate;
     const lfoGain = this.ctx.createGain();
-    lfoGain.gain.value = lfo.depth;
+    lfoGain.gain.value = lfo.depth * (lfo.target === 'pitch' ? 200 : lfo.target === 'filter' ? filter.cutoff * 0.5 : 0.3);
     lfoOsc.connect(lfoGain);
+    if (lfo.target === 'pitch')  lfoGain.connect(filterNode.frequency); // approximate
+    if (lfo.target === 'filter') lfoGain.connect(filterNode.frequency);
+    if (lfo.target === 'amp')    lfoGain.connect(gainNode.gain);
 
-    if (lfo.target === 'pitch') lfoGain.connect(osc.detune);
-    else if (lfo.target === 'filter') lfoGain.connect(filterNode.frequency);
-    else if (lfo.target === 'amp') lfoGain.connect(gainNode.gain);
+    // Oscillator bank (unison)
+    const oscs: OscillatorNode[] = [];
+    for (let v = 0; v < voices; v++) {
+      const osc = this.ctx.createOscillator();
+      osc.type  = preset.oscillatorType;
+      osc.frequency.value = freq;
+      // Spread detune evenly
+      const detuneOffset = voices > 1
+        ? ((v / (voices - 1)) - 0.5) * spread + preset.detune
+        : preset.detune;
+      osc.detune.value = detuneOffset;
+      if (lfo.target === 'pitch') lfoGain.connect(osc.detune);
 
-    // Effects
-    this.distortionNode.curve = this.makeDistortionCurve(effects.distortion);
-    this.delayWet.gain.value = effects.delay;
-    this.delayNode.delayTime.value = effects.delayTime;
-    this.reverbWet.gain.value = effects.reverb;
+      const voiceGain = this.ctx.createGain();
+      voiceGain.gain.value = 1 / Math.sqrt(voices); // equal-power sum
+      osc.connect(voiceGain);
+      voiceGain.connect(filterNode);
+      osc.start(now);
+      oscs.push(osc);
+    }
 
-    // Connect chain
-    osc.connect(filterNode);
     filterNode.connect(gainNode);
     gainNode.connect(this.masterGain);
 
-    osc.start(now);
-    lfoOsc.start(now);
+    // Apply effects
+    this.distortionNode.curve = this._makeCurve(effects.distortion);
+    this.delayWetGain.gain.setTargetAtTime(effects.delay, now, 0.01);
+    this.delayNode.delayTime.value = effects.delayTime;
+    this.delayFeedback.gain.value = effects.delayFeedback ?? 0.35;
+    this.reverbWetGain.gain.setTargetAtTime(effects.reverb, now, 0.01);
 
-    this.activeNotes.set(midiNote, { osc, gain: gainNode, filter: filterNode, lfo: lfoOsc, lfoGain });
+    lfoOsc.start(now);
+    this.activeNotes.set(midiNote, { oscs, gain: gainNode, filter: filterNode, lfo: lfoOsc, lfoGain });
   }
 
   noteOff(midiNote: number, envelope?: ADSREnvelope) {
     const note = this.activeNotes.get(midiNote);
     if (!note) return;
-    const now = this.ctx.currentTime;
+    const now     = this.ctx.currentTime;
     const release = envelope?.release ?? 0.3;
     note.gain.gain.cancelScheduledValues(now);
     note.gain.gain.setValueAtTime(note.gain.gain.value, now);
     note.gain.gain.linearRampToValueAtTime(0.0001, now + release);
-    note.osc.stop(now + release + 0.01);
-    note.lfo.stop(now + release + 0.01);
+    for (const osc of note.oscs) { try { osc.stop(now + release + 0.01); } catch {} }
+    try { note.lfo.stop(now + release + 0.01); } catch {}
     this.activeNotes.delete(midiNote);
   }
 
   allNotesOff() {
-    this.activeNotes.forEach((_, note) => this.noteOff(note));
+    for (const [note] of this.activeNotes) this.noteOff(note);
   }
 
-  updateFilter(params: FilterParams) {
-    this.activeNotes.forEach(note => {
-      note.filter.type = params.type;
-      note.filter.frequency.value = params.cutoff;
-      note.filter.Q.value = params.resonance;
-    });
-  }
-
-  dispose() {
-    this.allNotesOff();
-    this.masterGain.disconnect();
-  }
+  dispose() { this.allNotesOff(); this.masterGain.disconnect(); }
 }
 
-// ---- Waveform Rendering ----
+// ═══════════════════════════════════════════════════════════
+// SECTION 6 — CANVAS RENDERERS
+// ═══════════════════════════════════════════════════════════
 
 export function drawWaveform(
   canvas: HTMLCanvasElement,
   buffer: AudioBuffer | null,
   color = '#60a5fa',
-  bg = 'transparent'
 ) {
   const ctx = canvas.getContext('2d');
-  if (!ctx) return;
+  if (!ctx || !buffer) return;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  if (!buffer) return;
 
   const data = buffer.getChannelData(0);
   const step = Math.ceil(data.length / canvas.width);
-  const amp = canvas.height / 2;
-
-  if (bg !== 'transparent') {
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  }
+  const amp  = canvas.height / 2;
 
   ctx.beginPath();
   ctx.strokeStyle = color;
-  ctx.lineWidth = 1.5;
+  ctx.lineWidth   = 1.5;
 
   for (let i = 0; i < canvas.width; i++) {
-    let min = 1, max = -1;
+    let mn = 1, mx = -1;
     for (let j = 0; j < step; j++) {
-      const val = data[i * step + j] ?? 0;
-      if (val < min) min = val;
-      if (val > max) max = val;
+      const v = data[i * step + j] ?? 0;
+      if (v < mn) mn = v; if (v > mx) mx = v;
     }
-    ctx.moveTo(i, amp + min * amp);
-    ctx.lineTo(i, amp + max * amp);
+    ctx.moveTo(i, amp + mn * amp * 0.9);
+    ctx.lineTo(i, amp + mx * amp * 0.9);
   }
   ctx.stroke();
 }
 
-// ---- Spectrum Analyzer Renderer ----
-
-export function drawSpectrum(
-  canvas: HTMLCanvasElement,
-  analyser: AnalyserNode,
-  color = '#a78bfa'
-) {
+export function drawSpectrum(canvas: HTMLCanvasElement, analyser: AnalyserNode) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
-  const bufferLength = analyser.frequencyBinCount;
-  const dataArray = new Uint8Array(bufferLength);
-  analyser.getByteFrequencyData(dataArray);
+  const N    = analyser.frequencyBinCount;
+  const data = new Uint8Array(N);
+  analyser.getByteFrequencyData(data);
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const barWidth = (canvas.width / bufferLength) * 2.5;
+
+  // Studio One-style: dark background, warm gradient bars
+  const grad = ctx.createLinearGradient(0, canvas.height, 0, 0);
+  grad.addColorStop(0,   '#1a0a2e');
+  grad.addColorStop(0.4, '#6d28d9');
+  grad.addColorStop(0.8, '#a78bfa');
+  grad.addColorStop(1,   '#ddd6fe');
+  ctx.fillStyle = grad;
+
+  const barW = (canvas.width / N) * 2.8;
   let x = 0;
-
-  const gradient = ctx.createLinearGradient(0, canvas.height, 0, 0);
-  gradient.addColorStop(0, '#6d28d9');
-  gradient.addColorStop(0.5, '#a78bfa');
-  gradient.addColorStop(1, '#ddd6fe');
-
-  ctx.fillStyle = gradient;
-  for (let i = 0; i < bufferLength; i++) {
-    const barHeight = (dataArray[i] / 255) * canvas.height;
-    ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
-    x += barWidth + 1;
+  for (let i = 0; i < N; i++) {
+    const h = (data[i] / 255) * canvas.height;
+    ctx.fillRect(x, canvas.height - h, Math.max(1, barW - 1), h);
+    x += barW;
     if (x > canvas.width) break;
   }
+
+  // Peak line
+  ctx.strokeStyle = 'rgba(221,214,254,0.3)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  x = 0;
+  for (let i = 0; i < N; i++) {
+    const h = (data[i] / 255) * canvas.height;
+    if (i === 0) ctx.moveTo(x + barW / 2, canvas.height - h);
+    else ctx.lineTo(x + barW / 2, canvas.height - h);
+    x += barW;
+    if (x > canvas.width) break;
+  }
+  ctx.stroke();
 }
 
-export function drawOscilloscope(
-  canvas: HTMLCanvasElement,
-  analyser: AnalyserNode,
-  color = '#34d399'
-) {
+export function drawOscilloscope(canvas: HTMLCanvasElement, analyser: AnalyserNode) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
-  const bufferLength = analyser.fftSize;
-  const dataArray = new Uint8Array(bufferLength);
-  analyser.getByteTimeDomainData(dataArray);
+  const N    = analyser.fftSize;
+  const data = new Uint8Array(N);
+  analyser.getByteTimeDomainData(data);
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.strokeStyle = color;
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(124,58,237,0.15)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, canvas.height / 2); ctx.lineTo(canvas.width, canvas.height / 2);
+  ctx.stroke();
+
+  // Waveform — glow style
+  ctx.shadowBlur = 6;
+  ctx.shadowColor = '#34d399';
+  ctx.strokeStyle = '#34d399';
   ctx.lineWidth = 2;
   ctx.beginPath();
 
-  const sliceWidth = canvas.width / bufferLength;
-  let x = 0;
-  for (let i = 0; i < bufferLength; i++) {
-    const v = dataArray[i] / 128.0;
+  const sliceW = canvas.width / N;
+  for (let i = 0; i < N; i++) {
+    const v = data[i] / 128.0;
     const y = (v * canvas.height) / 2;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-    x += sliceWidth;
+    if (i === 0) ctx.moveTo(0, y);
+    else ctx.lineTo(i * sliceW, y);
   }
   ctx.stroke();
+  ctx.shadowBlur = 0;
 }

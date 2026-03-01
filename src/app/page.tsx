@@ -8,6 +8,7 @@ import { Layers, Waves, Music2, Zap } from 'lucide-react';
 const DAW = dynamic(() => import('@/components/daw/DAW'), { ssr: false, loading: () => <LoadingScreen label="DAW を起動中..." /> });
 const SampleBrowser = dynamic(() => import('@/components/sampler/SampleBrowser'), { ssr: false, loading: () => <LoadingScreen label="サンプラー読込中..." /> });
 const Synthesizer = dynamic(() => import('@/components/synth/Synthesizer'), { ssr: false, loading: () => <LoadingScreen label="シンセ初期化中..." /> });
+const ViolinPlayer = dynamic(() => import('@/components/violin/ViolinPlayer'), { ssr: false, loading: () => <LoadingScreen label="バイオリン起動中..." /> });
 
 function LoadingScreen({ label = '読み込み中...' }: { label?: string }) {
   return (
@@ -28,6 +29,7 @@ const TABS: { id: Tab; label: string; sublabel: string; icon: React.ReactNode; a
   { id: 'daw',     label: 'DAW',       sublabel: 'マルチトラック', icon: <Layers size={15} />, activeColor: 'text-violet-400 border-violet-500' },
   { id: 'sampler', label: 'サンプラー', sublabel: 'ブラウザ',       icon: <Waves size={15} />,  activeColor: 'text-cyan-400 border-cyan-500' },
   { id: 'synth',   label: 'シンセ',     sublabel: 'オシレーター',   icon: <Zap size={15} />,    activeColor: 'text-pink-400 border-pink-500' },
+  { id: 'violin',  label: 'バイオリン', sublabel: 'SWAM物理モデル', icon: <Music2 size={15} />, activeColor: 'text-amber-400 border-amber-500' },
 ];
 
 export default function Home() {
@@ -94,6 +96,13 @@ export default function Home() {
           <div className="h-full overflow-auto">
             <Suspense fallback={<LoadingScreen label="シンセ初期化中..." />}>
               <Synthesizer />
+            </Suspense>
+          </div>
+        )}
+        {activeTab === 'violin' && (
+          <div className="h-full overflow-auto p-6">
+            <Suspense fallback={<LoadingScreen label="バイオリン起動中..." />}>
+              <ViolinPlayer />
             </Suspense>
           </div>
         )}
